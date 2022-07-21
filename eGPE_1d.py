@@ -87,10 +87,21 @@ res = minimize(energy_func,np.array([0.6,0.01]),method='Powell')
 print(res.x)
 
 ### TESTING ###
-"""Plot test
-etas = [1]
-ls = np.linspace(1e-4,100e-4,100)
+#Plot test
+ls = [6e-4]
+etas = np.linspace(0.5,1.5)
 energies = energies_mat(etas,ls)
 import matplotlib.pyplot as plt
-plt.plot(ls,energies[0,:])
-plt.show()"""
+plt.plot(etas,energies[:,0])
+plt.show()
+
+
+#ANALYTIC TEST:
+def analytic_energy(eta,l):
+    gam_sig = 2/(5*np.pi*1.5*l**3)
+    g_QF = gam_QF*gam_sig
+    return 1/2*n*(g_s/(2*np.pi*l**2) + g_dd/(2*np.pi*l**2)*(2-eta)/(1+eta)) + 2/5*g_QF*n**1.5 +\
+        hbar**2/(4*m*l**2)*(eta+1/eta) + m*l**2/4*(omegas[0]**2/eta+omegas[1]**2*eta)
+energy_func1 = lambda x: analytic_energy(x[0],x[1])
+res = minimize(energy_func1,np.array([0.6,0.01]))
+print(res.x)
