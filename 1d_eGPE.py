@@ -1,8 +1,10 @@
 import numpy as np
 import scipy.special as sc
 import ftransformer
+from scipy.optimize import minimize
 import warnings
 warnings.filterwarnings('error')
+
 # set parameters
 n = 1.0e19      # mean density
 L = 0.1         # length
@@ -79,10 +81,16 @@ def energies_mat(etas,ls):
             vals[i,j] = particle_energy(etas[i],ls[j])
     return vals
 
+def energy_func(x):
+    return particle_energy(x[0],x[1])
+res = minimize(energy_func,np.array([0.6,0.01]),method='Powell')
+print(res.x)
+
 ### TESTING ###
-etas = np.linspace(0.5,1.5)
-ls = [0.01]
+"""Plot test
+etas = [1]
+ls = np.linspace(1e-4,100e-4,100)
 energies = energies_mat(etas,ls)
 import matplotlib.pyplot as plt
-plt.plot(etas,energies[:,0])
-plt.show()
+plt.plot(ls,energies[0,:])
+plt.show()"""
