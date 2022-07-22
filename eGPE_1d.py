@@ -13,7 +13,7 @@ e_dd = 1        # interaction ratio
 m = 167.259*1.66e-27
 hbar = 1.055e-34# duh
 omegas = 2*np.pi*np.array([150,150,0]) # steepness of potential
-RES = 1000      # array length for integral and FFT
+RES = 2048      # array length for integral and FFT, pfastest w/ power of 2
 
 # set wavefunction
 def psi_0(z):
@@ -67,8 +67,9 @@ def U_sig(ks,eta,l):
             numerat[index] = 3.0
         else:
             try: # actual calculation
-                numerat[index] = 3*(Q_sq*np.exp(Q_sq)*sc.expi(-Q_sq)+1)
-            except Warning: # account for overflow error
+                expo = np.exp(Q_sq)
+                numerat[index] = 3*(Q_sq*expo*sc.expi(-Q_sq)+1)
+            except RuntimeWarning: # account for overflow error
                 pass # since zero already set
     return g_s/(2*np.pi*l**2) + g_dd/(2*np.pi*l**2) * (numerat/(1+eta)-1)
 
@@ -81,27 +82,7 @@ def energies_mat(etas,ls):
             vals[i,j] = particle_energy(etas[i],ls[j])
     return vals
 
-def energy_func(x):
-    return particle_energy(x[0],x[1])
-res = minimize(energy_func,np.array([0.6,0.01]),method='Powell')
-print(res.x)
-
-### TESTING ###
-#Plot test
-ls = [6e-4]
-etas = np.linspace(0.5,1.5)
-energies = energies_mat(etas,ls)
-import matplotlib.pyplot as plt
-plt.plot(etas,energies[:,0])
-plt.show()
-
-
-#ANALYTIC TEST:
-def analytic_energy(eta,l):
-    gam_sig = 2/(5*np.pi*1.5*l**3)
-    g_QF = gam_QF*gam_sig
-    return 1/2*n*(g_s/(2*np.pi*l**2) + g_dd/(2*np.pi*l**2)*(2-eta)/(1+eta)) + 2/5*g_QF*n**1.5 +\
-        hbar**2/(4*m*l**2)*(eta+1/eta) + m*l**2/4*(omegas[0]**2/eta+omegas[1]**2*eta)
-energy_func1 = lambda x: analytic_energy(x[0],x[1])
-res = minimize(energy_func1,np.array([0.6,0.01]))
+energy_func = lambda x: particle_energy(x[0],x[1])*1.e26
+bnds = ((0.01,None),(1.e-9,None))
+res = minimize(energy_func,(1.1,0.001),bounds=bnds)
 print(res.x)
