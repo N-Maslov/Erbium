@@ -8,13 +8,13 @@ warnings.filterwarnings('error')
 
 # set parameters
 n = 1.0e19      # mean density
-L = 0.1         # length
+L =  6.79223076e-02        # length
 a_s = 3.0e-9    # contact length
 e_dd = 1        # interaction ratio
-m = 167.259*1.66e-27
+m = 166*1.66e-27
 hbar = 1.055e-34# duh
 omegas = 2*np.pi*np.array([150,150,0]) # steepness of potential
-RES = 2048      # array length for integral and FFT, pfastest w/ power of 2
+RES = 2048      # array length for integral and FFT, fastest w/ power of 2
 
 # preliminary calculation
 g_s = 4*np.pi*hbar**2/m * a_s
@@ -45,36 +45,36 @@ def particle_energy(psi_args,psi_0):
     psisq = np.abs(psis)**2
     F_psi = ft.f_x4m(RES,L,psis)[0]
     F_psi_sq, ks = ft.f_x4m(RES,L,psisq)
+    k_range = ks[-1]-2*ks[0]+ks[1]
 
     # Number of particles:
-    N = np.sum(psisq)*L/RES
+    N = np.sum(psisq)*step
 
     # preliminary calc of constants
     gam_sig = 2/(5*np.pi*1.5*l**3)
     g_QF = gam_QF*gam_sig
 
     # initialise with perpendicular energy contribution
-    val = hbar**2/(4*m*l**2)*(eta+1/eta) + m*l**2/4*(omegas[0]**2/eta+omegas[1]**2*eta)
+    val = hbar**2/(4*m*l**2)*(eta+1/eta) + m*l**2/4*(omegas[0]**2/eta+omegas[1]**2*eta)*N/step
     # get kinetic energies for each point
-    KE_contribs = hbar**2/(2*m) * ft.inv_f_x4m(RES,L,F_psi*ks**2)[0].real
+    KE_contribs = hbar**2/(2*m) * ft.inv_f_x4m(RES,k_range,F_psi*ks**2)[0].real / (2*np.pi)**2
 
-    Phis = Phi(eta,l,F_psi_sq,ks)
+    #Phis = Phi(eta,l,F_psi_sq,ks)
+    Phis = ft.inv_f_x4m(RES,k_range,U_sig(ks,eta,l)*F_psi_sq)[0]
     index = 0
     for z in zs:
         psi = psis[index] # wavefunction value to put into integrand
-        val += step/N*(
-            np.conjugate(psi) * (
-            (2/5*g_QF*np.abs(psi)**3 + 1/2*Phis[index].real + 1/2*m*omegas[2]**2*z**2)*psi
-            +KE_contribs[index]
-            )   
-        ) # get integrand at each point
+        val += np.conjugate(psi) * (
+                (2/5*g_QF*np.abs(psi)**3 + 1/2*Phis[index].real + 1/2*m*omegas[2]**2*z**2)*psi
+                +KE_contribs[index]
+                )  # get integrand at each point
         index+=1
-    return val
+    return val*step/N
 
 
 def Phi(eta:float,l:float,F_psi_sq,ks):
     # drops redundant corresponding z's on return 
-    return ft.inv_f_x4m(RES,ks[-1]-ks[0],U_sig(ks,eta,l)*F_psi_sq)[0]
+    return #ft.inv_f_x4m(RES,k_range,U_sig(ks,eta,l)*F_psi_sq)[0]
 
 def U_sig(ks:np.ndarray,eta:float,l:float):
     """Calculate approximation function for 2D fourier transform."""
@@ -102,14 +102,19 @@ def energies_mat(etas:np.ndarray,ls:np.ndarray):
     return vals
 
 # set wavefunction
-def psi_0(z): # w is width as fraction of L/2
-    """Must be of form psi_0(z,*args [optional])"""
-    return n**0.5*z**0
+def psi_0(z,theta,L_psi):
+    """Must be of form psi_0(z,arg1, arg2, ...)"""
+    return n**0.5 * (np.cos(theta) + 2**0.5*np.sin(theta)*np.cos(2*np.pi*z/L_psi))
 
-print(particle_energy((1.08,5.63e-4,10),psi_0))
+print(particle_energy((1.07552157e+00, 5.61507012e-04, 6.39240335e-02, 6.79223076e-02),psi_0))
 
-energy_func = lambda x,psi_0: particle_energy(x,psi_0)*1.e26
-bnds = ((0.01,None),(1.e-9,None))
-res = minimize(energy_func,(1.1,0.001),bounds=bnds,args=(psi_0))
+### MINIMISATION ###
+
+energy_func = lambda x,psi_0: particle_energy(x,psi_0)*1.e30
+# Set bounds for eta, l, additional psi arguments
+bnds = ((0.01,None),(1.e-9,None),(0,0.616),(1.e-9,L))
+# Set initial guess
+x_0 = (1.2,0.01,0.2,0.01)
+res = minimize(energy_func,x_0,bounds=bnds,args=(psi_0))
 print(res.x)
-cProfile.run('res = minimize(energy_func,(1.1,0.001),bounds=bnds,args=(psi_0))')
+#cProfile.run('res = minimize(energy_func,(1.1,0.001),bounds=bnds,args=(psi_0))')"""

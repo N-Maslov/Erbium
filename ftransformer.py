@@ -18,19 +18,14 @@ def inv_f_x4m(N,k_range,in_vect):
 ### TESTING ###
 """import matplotlib.pyplot as plt
 L = 100
-N = 10000
+N = 20
 zs = np.linspace(-L/2,L/2,N,endpoint=False,dtype=complex)
 
 func = np.exp(-np.abs(zs-10))
 transform, k_vals = f_x4m(N,L,func)
 # works up to here. now try inverse transform.
-og_func, x_vals = inv_f_x4m(N,k_vals[-1]-k_vals[0],transform)
+og_func, x_vals = inv_f_x4m(N,k_vals[-1]-2*k_vals[0]+k_vals[1],transform)
 
-func = zs**2
-transform, k_vals = f_x4m(N,L,func)
-
-#plt.plot(k_vals,transform)
-og_func, x_vals = inv_f_x4m(N,k_vals[-1]-k_vals[0],transform)
 plt.plot(zs,func)
 plt.plot(x_vals, og_func)
 plt.show()"""
