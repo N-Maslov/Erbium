@@ -2,6 +2,7 @@ import numpy as np
 import scipy.special as sc
 import ftransformer as ft
 from scipy.optimize import minimize
+from scipy.fftpack import diff
 import warnings
 import cProfile
 warnings.filterwarnings('error')
@@ -56,9 +57,8 @@ def particle_energy(psi_args,psi_0):
     # initialise with perpendicular energy contribution
     val = hbar**2/(4*m*l**2)*(eta+1/eta) + m*l**2/4*(omegas[0]**2/eta+omegas[1]**2*eta)*N/step
     # get kinetic energies for each point
-    KE_contribs = hbar**2/(2*m) * ft.inv_f_x4m(RES,k_range,F_psi*ks**2)[0].real / (2*np.pi)**2
+    KE_contribs = -hbar**2/(2*m) * diff(psis,2,L)
 
-    #Phis = Phi(eta,l,F_psi_sq,ks)
     Phis = ft.inv_f_x4m(RES,k_range,U_sig(ks,eta,l)*F_psi_sq)[0]
     index = 0
     for z in zs:
@@ -86,14 +86,6 @@ def U_sig(ks:np.ndarray,eta:float,l:float):
                 pass # since zero already set
     return g_s/(2*np.pi*l**2) + g_dd/(2*np.pi*l**2) * (numerat/(1+eta)-1)
 
-def energies_mat(etas:np.ndarray,ls:np.ndarray):
-    """Returns matrix of per-particle energies, each of which corresponds
-    to a separate (eta,l) pair."""
-    vals = np.zeros((len(etas),len(ls)))
-    for i in range(len(etas)):
-        for j in range(len(ls)):
-            vals[i,j] = particle_energy(etas[i],ls[j])
-    return vals
 
 # set wavefunction
 def psi_0(z,L,theta):

@@ -2,18 +2,23 @@ import numpy as np
 import scipy.special as sc
 import ftransformer as ft
 from scipy.optimize import minimize
+from scipy.fftpack import diff
 import warnings
 import cProfile
 warnings.filterwarnings('error')
 
 # set parameters
-n = 1.0e19      # mean density
-L =  0.1        # length
-a_s = 3.0e-9    # contact length
-e_dd = 1        # interaction ratio
 m = 166*1.66e-27
 hbar = 1.055e-34# duh
-omegas = 2*np.pi*np.array([150,150,0]) # steepness of potential
+omegas = 2*np.pi*np.array([150,150,150]) # steepness of potential
+char_l_xy = np.sqrt(hbar/(m*np.sqrt(omegas[0]*omegas[1])))
+char_l_z = np.sqrt(hbar/(m*omegas[2]))
+char_e = hbar*np.sum(omegas)/2
+
+n = 1.0e19*char_l_xy**2      # mean density
+L =  char_l_z*1.e1        # length
+a_s = 3.0e-9    # contact length
+e_dd = 1        # interaction ratio
 RES = 2048      # array length for integral and FFT, fastest w/ power of 2
 
 # preliminary calculation
@@ -43,7 +48,6 @@ def particle_energy(psi_args,psi_0):
     except TypeError: # if psi_0 has 0 free parameters
         psis = psi_0(zs)
     psisq = np.abs(psis)**2
-    F_psi = ft.f_x4m(RES,L,psis)[0]
     F_psi_sq, ks = ft.f_x4m(RES,L,psisq)
     k_range = ks[-1]-2*ks[0]+ks[1]
 
@@ -55,10 +59,9 @@ def particle_energy(psi_args,psi_0):
     g_QF = gam_QF*gam_sig
 
     # initialise with perpendicular energy contribution
-    val = hbar**2/(4*m*l**2)*(eta+1/eta) + m*l**2/4*(omegas[0]**2/eta+omegas[1]**2*eta)*N/step
+    val = (m*l**2/4*(omegas[0]**2/eta+omegas[1]**2*eta)+hbar**2/(4*m*l**2)*(eta+1/eta))*N/step
     # get kinetic energies for each point
-    KE_contribs = hbar**2/(2*m) * ft.inv_f_x4m(RES,k_range,F_psi*ks**2)[0].real / (2*np.pi)**2
-
+    KE_contribs = -hbar**2/(2*m) * diff(psis,2,L)
     Phis = ft.inv_f_x4m(RES,k_range,U_sig(ks,eta,l)*F_psi_sq)[0]
     index = 0
     for z in zs:
@@ -87,28 +90,20 @@ def U_sig(ks:np.ndarray,eta:float,l:float):
                 pass # since zero already set
     return g_s/(2*np.pi*l**2) + g_dd/(2*np.pi*l**2) * (numerat/(1+eta)-1)
 
-def energies_mat(etas:np.ndarray,ls:np.ndarray):
-    """Returns matrix of per-particle energies, each of which corresponds
-    to a separate (eta,l) pair."""
-    vals = np.zeros((len(etas),len(ls)))
-    for i in range(len(etas)):
-        for j in range(len(ls)):
-            vals[i,j] = particle_energy(etas[i],ls[j])
-    return vals
 
 # set wavefunction
-def psi_0(z,theta,L_psi):
+def psi_0(z,sigma):
     """Must be of form psi_0(z,arg1, arg2, ...)"""
-    return n**0.5 * (np.cos(theta) + 2**0.5*np.sin(theta)*np.cos(2*np.pi*z/L_psi))
+    return (n*L/(np.sqrt(np.pi)*sigma))**0.5 * np.exp(-z**2/(2*sigma**2))
 
-print(particle_energy((1.07552157e+00, 5.61507012e-04, 6.39240335e-02, 6.79223076e-02),psi_0))
+print(particle_energy((1.02980597e+00, 6.50048122e-07, 6.37356733e-07),psi_0)/char_e)
 
 ### MINIMISATION ###
 energy_func = lambda x,psi_0: particle_energy(x,psi_0)*1.e35
 # Set bounds for eta, l, additional psi arguments
-bnds = ((0.01,None),(1.e-9,None),(0,0.616),(1.e-9,L))
+bnds = ((0.01,None),(1.e-9,None),(1.e-9,L/10))
 # Set initial guess
-x_0 = (1.2,0.01,0.2,0.01)
+x_0 = (1.5,char_l_xy,10*char_l_z)
 res = minimize(energy_func,x_0,bounds=bnds,args=(psi_0))
 print(res.x)
-#cProfile.run('res = minimize(energy_func,(1.1,0.001),bounds=bnds,args=(psi_0))')"""
+#cProfile.run('')
