@@ -10,15 +10,17 @@ warnings.filterwarnings('error')
 # set parameters
 m = 166*1.66e-27
 hbar = 1.055e-34# duh
-omegas = 2*np.pi*np.array([150,150,150]) # steepness of potential
+omegas = 2*np.pi*np.array([150,150,15]) # steepness of potential
+
+# for QHO treatment
 char_l_xy = np.sqrt(hbar/(m*np.sqrt(omegas[0]*omegas[1])))
 char_l_z = np.sqrt(hbar/(m*omegas[2]))
 char_e = hbar*np.sum(omegas)/2
 
-n = 1.0e19*char_l_xy**2      # mean density
-L =  char_l_z*1.e1        # length
-a_s = 3.0e-9    # contact length
-e_dd = 1        # interaction ratio
+n = 2.5e9      # mean density
+L = char_l_z*1.e2        # length
+a_s = 5.97e-11*80    # contact length
+e_dd = 0        # interaction ratio
 RES = 2048      # array length for integral and FFT, fastest w/ power of 2
 
 # preliminary calculation
@@ -96,14 +98,32 @@ def psi_0(z,sigma):
     """Must be of form psi_0(z,arg1, arg2, ...)"""
     return (n*L/(np.sqrt(np.pi)*sigma))**0.5 * np.exp(-z**2/(2*sigma**2))
 
-print(particle_energy((1.02980597e+00, 6.50048122e-07, 6.37356733e-07),psi_0)/char_e)
+print(particle_energy((1.8441923542561824, 1.9839751482846764e-06, 2.1053596391885157e-05),psi_0)/char_e)
+#cProfile.run(''
 
-### MINIMISATION ###
-energy_func = lambda x,psi_0: particle_energy(x,psi_0)*1.e35
+### MINIMSER ###
+def energy_func(x,psi):
+    # inputs rescaled by characterstic lengths to be O(1)
+    rescaled_vect = (x[0],x[1]*char_l_xy,x[2]*char_l_z)
+    return particle_energy(rescaled_vect,psi)/char_e
+
 # Set bounds for eta, l, additional psi arguments
-bnds = ((0.01,None),(1.e-9,None),(1.e-9,L/10))
+bnds = ((0.01,None),(1.e-9,None),(1.e-9,None))
 # Set initial guess
-x_0 = (1.5,char_l_xy,10*char_l_z)
+x_0 = (2, char_l_xy, 1.e-4)
+
 res = minimize(energy_func,x_0,bounds=bnds,args=(psi_0))
-print(res.x)
-#cProfile.run('')
+eta_min = res.x[0]
+l_min = res.x[1]
+sigma_min = res.x[2]
+print(eta_min,l_min,sigma_min)
+
+### PLOTTING ###
+"""sigmas = np.linspace(sigma_min*0.5,sigma_min*1.5,100)
+energies = [energy_func((eta_min,l_min,sigma),psi_0) for sigma in sigmas]
+import matplotlib.pyplot as plt
+plt.plot(sigmas,energies)
+plt.xlabel('mean longitudinal width / QHO longitudinal width')
+plt.ylabel('Energy / E_QHO')
+plt.title('sigma dependence around minimum with e_dd = 1, a_s = 80 a_0')
+plt.show()"""

@@ -6,9 +6,9 @@ from eGPE_1d import *
 # PLOT TEST:
 ls = [6e-4]
 etas = np.linspace(0.5,1.5)
-energies = energies_mat(etas,ls)
+#energies = energies_mat(etas,ls)
 import matplotlib.pyplot as plt
-plt.plot(etas,energies[:,0])
+#plt.plot(etas,energies[:,0])
 plt.show()
 
 
