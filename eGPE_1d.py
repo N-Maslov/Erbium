@@ -27,7 +27,7 @@ RES = 2048      # array length for integral and FFT, fastest w/ power of 2
 # preliminary calculation
 g_s = 4*np.pi*hbar**2/m * a_s
 g_dd = g_s*e_dd
-gam_QF = 32/3 * g_s *(a_s**3/np.pi)**0.5 * (1+3/2*e_dd)
+gam_QF = 32/3 * g_s *(a_s**3/np.pi)**0.5 * (1+3/2*e_dd**2)
 step = L / RES # z increment
 
 zs = np.linspace(-L/2,L/2,RES,endpoint=False)
@@ -99,11 +99,9 @@ def psi_0(z,sigma):
     """Must be of form psi_0(z,arg1, arg2, ...)"""
     return (n*L/(np.sqrt(np.pi)*sigma))**0.5 * np.exp(-z**2/(2*sigma**2))
 
-#print(particle_energy((1.8441923542561824, 1.9839751482846764e-06, 2.1053596391885157e-05),psi_0)/char_e)
-cProfile.run('print(particle_energy((1.8441923542561824, 1.9839751482846764e-06, 2.1053596391885157e-05),psi_0)/char_e)')
 
 ### MINIMSER ###
-"""def energy_func(x,psi):
+def energy_func(x,psi):
     # inputs rescaled by characterstic lengths to be O(1)
     rescaled_vect = (x[0],x[1]*char_l_xy,x[2]*char_l_z)
     return particle_energy(rescaled_vect,psi)/char_e
@@ -111,17 +109,19 @@ cProfile.run('print(particle_energy((1.8441923542561824, 1.9839751482846764e-06,
 # Set bounds for eta, l, additional psi arguments
 bnds = ((0.01,None),(1.e-9,None),(1.e-9,None))
 # Set initial guess
-x_0 = (2, char_l_xy, char_l_z)
+x_0 = (1, 1, 1)
 
-#res = minimize(energy_func,x_0,bounds=bnds,args=(psi_0))
-#print(res.x)
+cProfile.run('res = minimize(energy_func,x_0,bounds=bnds,args=(psi_0))')
 
-log_n_vals = np.linspace(7,11,30)
-min_etas = np.zeros_like(log_n_vals,dtype=float)
+"""a_s_vals = np.linspace(0,100,20)
+min_etas = np.zeros_like(a_s_vals,dtype=float)
 min_ls = deepcopy(min_etas)
 min_sigmas = deepcopy(min_etas)
-for i,a in enumerate(log_n_vals):
-    n = 10**log_n_vals[i]
+for i,a in enumerate(a_s_vals):
+    a_s = 5.97e-11*a    # contact length
+    g_s = 4*np.pi*hbar**2/m * a_s
+    g_dd = g_s*e_dd
+    gam_QF = 32/3 * g_s *(a_s**3/np.pi)**0.5 * (1+3/2*e_dd**2)
     res = minimize(energy_func,x_0,bounds=bnds,args=(psi_0))
     min_etas[i] = res.x[0]
     min_ls[i] = res.x[1]
@@ -132,21 +132,13 @@ for i,a in enumerate(log_n_vals):
 ### PLOTTING ###
 import matplotlib.pyplot as plt
 fig, axs = plt.subplots(1,3)
-axs[0].plot(log_n_vals,min_etas)
-axs[1].plot(log_n_vals,min_ls)
-axs[2].plot(log_n_vals,min_sigmas)
+axs[0].plot(a_s_vals,min_etas)
+axs[1].plot(a_s_vals,min_ls)
+axs[2].plot(a_s_vals,min_sigmas)
 for ax in axs:
-    ax.set_xlabel('log (n / m^-1)')
+    ax.set_xlabel('a_s')
 axs[0].set_ylabel('obliquity eta')
 axs[1].set_ylabel('transverse width l / (QHO transverse width)')
 axs[2].set_ylabel('longitudinal width epsilon / (QHO longitudinal width)')
-fig.suptitle('Parameter minima as a function of n (e_dd = 1, a_s = 80 a_0)')
-plt.show()"""
-"""sigmas = np.linspace(sigma_min*0.5,sigma_min*1.5,100)
-energies = [energy_func((eta_min,l_min,sigma),psi_0) for sigma in sigmas]
-import matplotlib.pyplot as plt
-plt.plot(sigmas,energies)
-plt.xlabel('mean longitudinal width / QHO longitudinal width')
-plt.ylabel('Energy / E_QHO')
-plt.title('sigma dependence around minimum with e_dd = 1, a_s = 80 a_0')
+fig.suptitle('Parameter minima as a function of n (e_dd = 1)')
 plt.show()"""
