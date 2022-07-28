@@ -5,6 +5,7 @@ from scipy.optimize import minimize
 from scipy.fftpack import diff
 import warnings
 import cProfile
+from copy import deepcopy
 warnings.filterwarnings('error')
 
 # set parameters
@@ -20,7 +21,7 @@ char_e = hbar*np.sum(omegas)/2
 n = 2.5e9      # mean density
 L = char_l_z*1.e2        # length
 a_s = 5.97e-11*80    # contact length
-e_dd = 0        # interaction ratio
+e_dd = 1        # interaction ratio
 RES = 2048      # array length for integral and FFT, fastest w/ power of 2
 
 # preliminary calculation
@@ -30,7 +31,8 @@ gam_QF = 32/3 * g_s *(a_s**3/np.pi)**0.5 * (1+3/2*e_dd)
 step = L / RES # z increment
 
 zs = np.linspace(-L/2,L/2,RES,endpoint=False)
-
+ks = np.fft.fftshift(2*np.pi*np.fft.fftfreq(RES,step))
+k_range = ks[-1]-2*ks[0]+ks[1]
 
 
 def particle_energy(psi_args,psi_0):
@@ -50,8 +52,7 @@ def particle_energy(psi_args,psi_0):
     except TypeError: # if psi_0 has 0 free parameters
         psis = psi_0(zs)
     psisq = np.abs(psis)**2
-    F_psi_sq, ks = ft.f_x4m(RES,L,psisq)
-    k_range = ks[-1]-2*ks[0]+ks[1]
+    F_psi_sq = ft.f_x4m(RES,L,psisq)
 
     # Number of particles:
     N = np.sum(psisq)*step
@@ -64,7 +65,7 @@ def particle_energy(psi_args,psi_0):
     val = (m*l**2/4*(omegas[0]**2/eta+omegas[1]**2*eta)+hbar**2/(4*m*l**2)*(eta+1/eta))*N/step
     # get kinetic energies for each point
     KE_contribs = -hbar**2/(2*m) * diff(psis,2,L)
-    Phis = ft.inv_f_x4m(RES,k_range,U_sig(ks,eta,l)*F_psi_sq)[0]
+    Phis = ft.inv_f_x4m(RES,k_range,U_sig(ks,eta,l)*F_psi_sq)
     index = 0
     for z in zs:
         psi = psis[index] # wavefunction value to put into integrand
@@ -98,11 +99,11 @@ def psi_0(z,sigma):
     """Must be of form psi_0(z,arg1, arg2, ...)"""
     return (n*L/(np.sqrt(np.pi)*sigma))**0.5 * np.exp(-z**2/(2*sigma**2))
 
-print(particle_energy((1.8441923542561824, 1.9839751482846764e-06, 2.1053596391885157e-05),psi_0)/char_e)
-#cProfile.run(''
+#print(particle_energy((1.8441923542561824, 1.9839751482846764e-06, 2.1053596391885157e-05),psi_0)/char_e)
+cProfile.run('print(particle_energy((1.8441923542561824, 1.9839751482846764e-06, 2.1053596391885157e-05),psi_0)/char_e)')
 
 ### MINIMSER ###
-def energy_func(x,psi):
+"""def energy_func(x,psi):
     # inputs rescaled by characterstic lengths to be O(1)
     rescaled_vect = (x[0],x[1]*char_l_xy,x[2]*char_l_z)
     return particle_energy(rescaled_vect,psi)/char_e
@@ -110,15 +111,37 @@ def energy_func(x,psi):
 # Set bounds for eta, l, additional psi arguments
 bnds = ((0.01,None),(1.e-9,None),(1.e-9,None))
 # Set initial guess
-x_0 = (2, char_l_xy, 1.e-4)
+x_0 = (2, char_l_xy, char_l_z)
 
-res = minimize(energy_func,x_0,bounds=bnds,args=(psi_0))
-eta_min = res.x[0]
-l_min = res.x[1]
-sigma_min = res.x[2]
-print(eta_min,l_min,sigma_min)
+#res = minimize(energy_func,x_0,bounds=bnds,args=(psi_0))
+#print(res.x)
+
+log_n_vals = np.linspace(7,11,30)
+min_etas = np.zeros_like(log_n_vals,dtype=float)
+min_ls = deepcopy(min_etas)
+min_sigmas = deepcopy(min_etas)
+for i,a in enumerate(log_n_vals):
+    n = 10**log_n_vals[i]
+    res = minimize(energy_func,x_0,bounds=bnds,args=(psi_0))
+    min_etas[i] = res.x[0]
+    min_ls[i] = res.x[1]
+    min_sigmas[i] = res.x[2]
+    print(i)
+
 
 ### PLOTTING ###
+import matplotlib.pyplot as plt
+fig, axs = plt.subplots(1,3)
+axs[0].plot(log_n_vals,min_etas)
+axs[1].plot(log_n_vals,min_ls)
+axs[2].plot(log_n_vals,min_sigmas)
+for ax in axs:
+    ax.set_xlabel('log (n / m^-1)')
+axs[0].set_ylabel('obliquity eta')
+axs[1].set_ylabel('transverse width l / (QHO transverse width)')
+axs[2].set_ylabel('longitudinal width epsilon / (QHO longitudinal width)')
+fig.suptitle('Parameter minima as a function of n (e_dd = 1, a_s = 80 a_0)')
+plt.show()"""
 """sigmas = np.linspace(sigma_min*0.5,sigma_min*1.5,100)
 energies = [energy_func((eta_min,l_min,sigma),psi_0) for sigma in sigmas]
 import matplotlib.pyplot as plt

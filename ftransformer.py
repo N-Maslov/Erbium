@@ -7,13 +7,13 @@ def f_x4m(N,L,in_vect):
     ks = 2*np.pi*np.fft.fftfreq(N,L/N)
     x4m = L/N * np.exp(ks*L/2*1j) * np.fft.fft(in_vect)
     x4m = np.fft.fftshift(x4m)
-    return x4m, np.fft.fftshift(ks)
+    return x4m#, np.fft.fftshift(ks)
 
 def inv_f_x4m(N,k_range,in_vect):
     """Inverse fourier transform. Same format as f_x4m; returns corresponding x's."""
     inv_input = in_vect[::-1]
     x4m = f_x4m(N,k_range,np.concatenate(([0],inv_input[:-1])))
-    return 1/(2*np.pi)*x4m[0], x4m[1]
+    return 1/(2*np.pi)*x4m#[0], x4m[1]
 
 ### TESTING ###
 """import matplotlib.pyplot as plt
