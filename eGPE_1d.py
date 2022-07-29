@@ -9,30 +9,23 @@ from copy import deepcopy
 warnings.filterwarnings('error')
 
 # set parameters
-m = 166*1.66e-27
-hbar = 1.055e-34# duh
-omegas = 2*np.pi*np.array([150,150,15]) # steepness of potential
+A = 2.e-4       # overall interaction strength
+e_dd = 1        # dipole interaction strength
+a_ratio = 0.1   # trap aspect ratio, omega_z / omega_R
+N = 5.e5        # number of particles
 
-# for QHO treatment
-char_l_xy = np.sqrt(hbar/(m*np.sqrt(omegas[0]*omegas[1])))
-char_l_z = np.sqrt(hbar/(m*omegas[2]))
-char_e = hbar*np.sum(omegas)/2
-
-n = 2.5e9      # mean density
-L = char_l_z*1.e2        # length
-a_s = 5.97e-11*80    # contact length
-e_dd = 1        # interaction ratio
-RES = 2048      # array length for integral and FFT, fastest w/ power of 2
+# computational preferences
+z_len = 1/a_ratio**0.5  # characteristic length of z-trap
+L = 100 * z_len         # length of mesh (units of characteristic L of z-trap)
+RES = 2048              # array length for integral and FFT, fastest w/ power of 2
 
 # preliminary calculation
-g_s = 4*np.pi*hbar**2/m * a_s
-g_dd = g_s*e_dd
-gam_QF = 32/3 * g_s *(a_s**3/np.pi)**0.5 * (1+3/2*e_dd**2)
 step = L / RES # z increment
-
 zs = np.linspace(-L/2,L/2,RES,endpoint=False)
 ks = np.fft.fftshift(2*np.pi*np.fft.fftfreq(RES,step))
 k_range = ks[-1]-2*ks[0]+ks[1]
+pref_inter = A*N # prefactor for interaction term
+pref_QF = 512/(75*np.pi) * A**2.5 * N**1.5 * (1+1.5*e_dd**2) # prefactor for QF term
 
 
 def particle_energy(psi_args,psi_0):
@@ -40,7 +33,7 @@ def particle_energy(psi_args,psi_0):
      - longitudinal functional form psi_0(z,*args)
      - arguments for psi, the first two of which must be anisotropy eta
      and mean width l.
-    Does not take vector inputs! Use energies_mat function for that."""
+    Does not take numpy vector inputs!"""
 
     eta = psi_args[0]
     l = psi_args[1]
@@ -54,27 +47,21 @@ def particle_energy(psi_args,psi_0):
     psisq = np.abs(psis)**2
     F_psi_sq = ft.f_x4m(RES,L,psisq)
 
-    # Number of particles:
-    N = np.sum(psisq)*step
-
-    # preliminary calc of constants
-    gam_sig = 2/(5*np.pi*1.5*l**3)
-    g_QF = gam_QF*gam_sig
-
     # initialise with perpendicular energy contribution
-    val = (m*l**2/4*(omegas[0]**2/eta+omegas[1]**2*eta)+hbar**2/(4*m*l**2)*(eta+1/eta))*N/step
+    val = 0.25*(eta+1/eta)*(l**2+1/l**2) / step
+
     # get kinetic energies for each point
-    KE_contribs = -hbar**2/(2*m) * diff(psis,2,L)
-    Phis = ft.inv_f_x4m(RES,k_range,U_sig(ks,eta,l)*F_psi_sq)
+    KE_contribs = -0.5 * diff(psis,2,L)
+    Phis = np.real(ft.inv_f_x4m(RES,k_range,U_sig(ks,eta,l)*F_psi_sq))
     index = 0
     for z in zs:
         psi = psis[index] # wavefunction value to put into integrand
         val += np.conjugate(psi) * (
-                (2/5*g_QF*np.abs(psi)**3 + 1/2*Phis[index].real + 1/2*m*omegas[2]**2*z**2)*psi
+                (pref_QF/l**3*np.abs(psi)**3 + pref_inter/l**2*Phis[index] + 1/2*a_ratio**2*z**2)*psi
                 +KE_contribs[index]
                 )  # get integrand at each point
         index+=1
-    return val*step/N
+    return val*step
 
 
 def U_sig(ks:np.ndarray,eta:float,l:float):
@@ -91,54 +78,12 @@ def U_sig(ks:np.ndarray,eta:float,l:float):
                 numerat[index] = 3*(Q_sq*expo*sc.expi(-Q_sq)+1)
             except RuntimeWarning: # account for overflow error
                 pass # since zero already set
-    return g_s/(2*np.pi*l**2) + g_dd/(2*np.pi*l**2) * (numerat/(1+eta)-1)
+    return 1+e_dd * (numerat/(1+eta)-1)
 
 
 # set wavefunction
 def psi_0(z,sigma):
     """Must be of form psi_0(z,arg1, arg2, ...)"""
-    return (n*L/(np.sqrt(np.pi)*sigma))**0.5 * np.exp(-z**2/(2*sigma**2))
+    return (1/(np.sqrt(np.pi)*sigma))**0.5 * np.exp(-z**2/(2*sigma**2))
 
-
-### MINIMSER ###
-def energy_func(x,psi):
-    # inputs rescaled by characterstic lengths to be O(1)
-    rescaled_vect = (x[0],x[1]*char_l_xy,x[2]*char_l_z)
-    return particle_energy(rescaled_vect,psi)/char_e
-
-# Set bounds for eta, l, additional psi arguments
-bnds = ((0.01,None),(1.e-9,None),(1.e-9,None))
-# Set initial guess
-x_0 = (1, 1, 1)
-
-cProfile.run('res = minimize(energy_func,x_0,bounds=bnds,args=(psi_0))')
-
-"""a_s_vals = np.linspace(0,100,20)
-min_etas = np.zeros_like(a_s_vals,dtype=float)
-min_ls = deepcopy(min_etas)
-min_sigmas = deepcopy(min_etas)
-for i,a in enumerate(a_s_vals):
-    a_s = 5.97e-11*a    # contact length
-    g_s = 4*np.pi*hbar**2/m * a_s
-    g_dd = g_s*e_dd
-    gam_QF = 32/3 * g_s *(a_s**3/np.pi)**0.5 * (1+3/2*e_dd**2)
-    res = minimize(energy_func,x_0,bounds=bnds,args=(psi_0))
-    min_etas[i] = res.x[0]
-    min_ls[i] = res.x[1]
-    min_sigmas[i] = res.x[2]
-    print(i)
-
-
-### PLOTTING ###
-import matplotlib.pyplot as plt
-fig, axs = plt.subplots(1,3)
-axs[0].plot(a_s_vals,min_etas)
-axs[1].plot(a_s_vals,min_ls)
-axs[2].plot(a_s_vals,min_sigmas)
-for ax in axs:
-    ax.set_xlabel('a_s')
-axs[0].set_ylabel('obliquity eta')
-axs[1].set_ylabel('transverse width l / (QHO transverse width)')
-axs[2].set_ylabel('longitudinal width epsilon / (QHO longitudinal width)')
-fig.suptitle('Parameter minima as a function of n (e_dd = 1)')
-plt.show()"""
+cProfile.run('particle_energy((1.24,1.79,z_len*1.94),psi_0)')
