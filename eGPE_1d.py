@@ -11,14 +11,15 @@ warnings.filterwarnings('error')
 
 # set parameters
 D = 2.2e-3          # overall interaction strength (FIXED) 5.e-3
-e_dd= 1.50          # dipole interaction strength
-a_ratio = 0.2      # trap aspect ratio, omega_z / omega_R
+e_dd= 1.80          # dipole interaction strength
+a_ratio = 0.30      # trap aspect ratio, omega_z / omega_R
 N = 3.0e4           # number of particles 8.0e3
 
 # computational preferences
 z_len = 1/a_ratio**0.5  # characteristic length of z-trap
-L = 40 * z_len         # length of mesh (units of characteristic L of z-trap)
-RES = 2**10             # array length for integral and FFT, fastest w/ power of 2
+#L = 2*0.08951394*100
+L = 40 * z_len          # length of mesh (units of characteristic L of z-trap)
+RES = 2**17             # array length for integral and FFT, fastest w/ power of 2, must be EVEN
 
 # preliminary calculation
 step = L / RES # z increment
@@ -35,7 +36,8 @@ def particle_energy(psi_args,psi_0):
      - longitudinal functional form psi_0(z,*args)
      - arguments for psi, the first two of which must be anisotropy eta
      and mean width l.
-    Does not take numpy vector inputs!"""
+    Does not take numpy vector inputs!
+    modify with conjugate, abs to allow complex psi."""
 
     eta = psi_args[0]
     l = psi_args[1]
@@ -43,7 +45,7 @@ def particle_energy(psi_args,psi_0):
 
     # wavefunction calc
     psis = psi_0(zs,*psi_0_args)
-    psisq = np.abs(psis)**2
+    psisq = psis**2
     N_corr = np.sum(psisq)*step
     psis = psis/N_corr**0.5
     psisq = psisq/N_corr
@@ -53,33 +55,23 @@ def particle_energy(psi_args,psi_0):
     # get kinetic energies for each point
     KE_contribs = -0.5 * diff(psis,2,L)
     Phis = np.real(ft.inv_f_x4m(RES,k_range,U_sig(ks,eta,l)*F_psi_sq))
-    index = 0
-    for z in zs:
-        psi = psis[index] # wavefunction value to put into integrand
-        val += np.conjugate(psi) * (
-                (pref_QF/l**3*np.abs(psi)**3 + pref_inter/l**2*Phis[index] + 1/2*a_ratio**2*z**2)*psi
-                +KE_contribs[index]
-                )  # get integrand at each point
-        index+=1
-    return val*step + 0.25*(eta+1/eta)*(l**2+1/l**2)
+
+    return 0.25*(eta+1/eta)*(l**2+1/l**2) + step*(psisq @ (
+        pref_QF*(psis/l)**3 + pref_inter/l**2*Phis + 1/2*a_ratio**2*zs**2
+    ) + psis@KE_contribs)
 
 
-def U_sig(ks:np.ndarray,eta:float,l:float):
-    """Calculate approximation function for 2D fourier transform."""
-    Q_sqs = (1/2**0.5 * ks *eta**0.25 * l)**2
-    # calculate for limiting cases
-    numerat = np.zeros_like(ks)
-    for index, Q_sq in enumerate(Q_sqs):
-        if Q_sq == 0:
-            numerat[index] = 3.0
-        else:
-            try: # actual calculation
-                expo = np.exp(Q_sq)
-                numerat[index] = 3*(Q_sq*expo*sc.expi(-Q_sq)+1)
-            except RuntimeWarning: # account for overflow error
-                pass # since zero already set
+def U_sig(ks,eta,l):
+    """Calculate approximation function for 2D fourier transform"""
+    Q_sqs = 1/2*eta**0.5*(ks*l)**2
+    Q_sqs = np.where(Q_sqs<703,Q_sqs,703*np.ones_like(ks,dtype=float))
+    # low value limit: ks is 0 at RES/2
+    Q_sqs[int(RES/2)] = 1.e-18
+    # normal calculation
+    numerat = np.where(Q_sqs<703,
+        3*(Q_sqs*np.exp(Q_sqs)*sc.expi(-Q_sqs)+1),np.zeros_like(ks,dtype=float))
+    # high value limit automatically zero now
     return 1+e_dd * (numerat/(1+eta)-1)
-
 
 # set wavefunction
 def psi_0(z,sigma,theta,period):
@@ -89,9 +81,12 @@ def psi_0(z,sigma,theta,period):
 
 
 ### MINIMISATION ###
-x_0 = 1,1,z_len,0.6,0.1*z_len
-bnds = (0.9,None),(0.1,None),(10*step,None),(0,0.6154),(10*step,None)
-print(step)
+x_0 = 1,1,z_len,0,0.1*z_len
+bnds = (0.9,None),(0.1,None),(10*step,L/2),(0,0.6154),(10*step,L/2)
+
+print(particle_energy((1.1,0.9,z_len*1.1,0.3,z_len*0.17),psi_0))
+cProfile.run('particle_energy((1.1,0.9,z_len*1.1,0.3,z_len*0.17),psi_0)')
+
 
 ### Plots generation
 """e_vals = np.linspace(1,2,10)
@@ -138,7 +133,7 @@ fig.suptitle(f'Parameter minima as a function of e_dd (D={D},a_ratio={a_ratio},N
 
 plt.show()"""
 
-
+"""
 #2D PLOT
 SIZE = 20
 yvalslist = np.linspace(0.02,0.3,SIZE,endpoint=True)
@@ -160,15 +155,12 @@ for i, a_ratio in enumerate(yvalslist):
         pref_inter = A*N # prefactor for interaction term
         pref_QF = 512/(75*np.pi) * A**2.5 * N**1.5 * (1+1.5*e_dd**2) # prefactor for QF term
         res = minimize(particle_energy,x_0,bounds=bnds,args=(psi_0),method='L-BFGS-B')
-        #print(res.x)
         outMat[i][j][:-1] = res.x
         outMat[i][j][-1] = particle_energy(res.x,psi_0)
-        #outMat[i][j] = np.random.rand()
-        #print(j)
     print('NEW i = ',i)
 
 
 names = ['outputs_'+str(i)+'.csv' for i in range(6)]
 for i, name in enumerate(names):
     np.savetxt(name,outMat[:,:,i],delimiter=',')
-vals = np.savetxt('vals.csv',[xvalslist,yvalslist],delimiter=',')
+vals = np.savetxt('vals.csv',[xvalslist,yvalslist],delimiter=',')"""
