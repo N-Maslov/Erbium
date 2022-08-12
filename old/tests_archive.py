@@ -1,4 +1,4 @@
-from eGPE_1d_dimensions import *
+from old.eGPE_1d_dimensions import *
 
 ### TESTING ###
 # To copy and paste in main pgm if necessary. All tests here have been passed.
@@ -23,7 +23,7 @@ res = minimize(energy_func1,(2.,0.01),bounds=bnds)
 print(res.x)
 
 # Analytic test for cosine oscillation
-from eGPE_1d_dimensions import *
+from old.eGPE_1d_dimensions import *
 def analytic_energy(eta,l,theta,L_psi):
     val = hbar**2/(4*m*l**2)*(eta+1/eta) + m*l**2/4*(omegas[0]**2/eta+omegas[1]**2*eta)
     gam_sig = 2/(5*np.pi*1.5*l**3)
