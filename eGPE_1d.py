@@ -10,9 +10,9 @@ from copy import deepcopy
 warnings.filterwarnings('error')
 
 # set parameters
-D = 2.2e-3          # overall interaction strength (FIXED) 2.2e-3
+D = 3.0e-3          # overall interaction strength (FIXED) 2.2e-3
 e_dd= 1.40          # dipole interaction strength
-a_ratio = 0.5       # trap aspect ratio, omega_z / omega_R #######################################################################
+a_ratio = 0.3       # trap aspect ratio, omega_z / omega_R #######################################################################
 N = 3.0e4           # number of particles 5.0e4 ##################################################################################
 
 # computational preferences
@@ -33,7 +33,7 @@ def get_coeff(D,e_dd,N):
     pref_QF = 512/(75*np.pi) * A**2.5 * N**1.5 * (1+1.5*e_dd**2) # prefactor for QF term
     return pref_inter, pref_QF
 
-step, zs, ks, k_range, L = set_mesh(30*z_len) ########################################################################################
+step, zs, ks, k_range, L = set_mesh(100*z_len) ########################################################################################
 pref_inter, pref_QF = get_coeff(D,e_dd,N)
 
 def particle_energy(psi_args,psi_0):
@@ -84,12 +84,12 @@ def psi_0(z,sigma,theta,period):
     (np.cos(theta) + 2**0.5*np.sin(theta)*np.cos(2*np.pi*z/period))
 
 # MINIMISING AND PLOTTING
-x_0 = 10,1,z_len,-0.3,50*step ##################################################################################################
-bnds = (0.9,None),(0.1,None),(10*step,L),(-0.6154,0.0000),(10*step,z_len) #########################################################
+x_0 = 10,1,z_len,0,0.1*z_len ##################################################################################################
+bnds = (0.9,None),(0.1,None),(10*step,None),(-0.6154,0.0000),(10*step,None) #########################################################
 fig2, ax2 = plt.subplots()
 print(step)
 
-e_vals = np.linspace(1,2,100) ####################################################################################################
+e_vals = np.linspace(1,2,25) ####################################################################################################
 min_etas = np.zeros_like(e_vals,dtype=float)
 min_ls = deepcopy(min_etas)
 min_sigmas = deepcopy(min_etas)
@@ -100,9 +100,7 @@ len_res = deepcopy(min_etas)
 
 transitioned = False
 for i,e_dd in enumerate(e_vals):
-    A = D/e_dd
-    pref_inter = A*N # prefactor for interaction term
-    pref_QF = 512/(75*np.pi) * A**2.5 * N**1.5 * (1+1.5*e_dd**2) # prefactor for QF term
+    pref_inter, pref_QF = get_coeff(D,e_dd,N)
 
     res = minimize(particle_energy,x_0,bounds=bnds,args=(psi_0),method='L-BFGS-B')
 
@@ -121,7 +119,8 @@ for i,e_dd in enumerate(e_vals):
         if res.x[2]<x_0[2]/3:
             transitioned = True
             step, zs, ks, k_range, L = set_mesh(3*z_len)
-    x_0 = res.x*np.random.normal(1,0.01,(5))
+            bnds = (0.9,None), (0.1,None), (10*step,None), (-0.6154,0.0000), (10*step,None)
+    x_0 = res.x*np.random.normal(1,0.03,(5))
 
 
 
