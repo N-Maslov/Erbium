@@ -12,14 +12,14 @@ warnings.filterwarnings('error')
 # set parameters
 D = 5.64e-3         # overall interaction strength (FIXED) omega = 150 gives 5.46e-4 for erbium, 0.0108 for Dy
 e_dd = 1.40          # dipole interaction strength
-a_ratio = 0.05       # trap aspect ratio, omega_z / omega_R 
+a_ratio = 0.3       # trap aspect ratio, omega_z / omega_R 
 N = 5.e4           # number of particles 5.0e4 
 
 # computational preferences
 z_len = 1/a_ratio**0.5  # characteristic length of z-trap
-RES = 2**13             # array length for integral and FFT, fastest w/ power of 2, must be EVEN ##################################
+RES = 2**10             # array length for integral and FFT, fastest w/ power of 2, must be EVEN ##################################
 
-# preliminary calculation
+# getting constants for given gri
 def set_mesh(L):
     step = L / RES # z increment
     zs = np.linspace(-L/2,L/2,RES,endpoint=False)
@@ -61,7 +61,6 @@ def particle_energy(psi_args,psi_0):
         pref_QF*np.abs(psis/l)**3 + pref_inter/l**2*Phis + 1/2*a_ratio**2*zs**2
     ) + psis@KE_contribs)
 
-
 def U_sig(ks,eta,l):
     """Calculate approximation function for 2D fourier transform"""
     Q_sqs = 1/2*eta**0.5*(ks*l)**2
@@ -80,7 +79,7 @@ def thet_wrap(thetas):
 
 # set wavefunction
 def psi_0(z,sigma,theta,period):
-    theta = thet_wrap(theta)
+    #theta = thet_wrap(theta)
     """Must be of form psi_0(z,arg1, arg2, ...)"""
     return (1/(np.sqrt(np.pi)*sigma))**0.5 * np.exp(-z**2/(2*sigma**2)) *\
     (np.cos(theta) + 2**0.5*np.sin(theta)*np.cos(2*np.pi*z/period))
@@ -90,64 +89,77 @@ contrast = lambda theta: (2**1.5 * np.sin(2*theta))/(3-np.cos(2*theta))
 
 
 # MINIMISING
-x_0 = 5,1.5,0.3*z_len,thetconstr,0.1*z_len 
-fig2,ax2 = plt.subplots()
+fig, axs = plt.subplots(2,3) # for variables
+fig2,ax2 = plt.subplots()    # for wavefunction
 
-e_vals = np.linspace(1.4,1.3,50)
+def gen_data(e_vals: np.ndarray, x_0: list, plotfreq=-1):
+    '''Outputs lists of parameters, grid resolutions at each point, and associated energies.'''
+    # cannot be local variables as they are changed here and referenced in particle_energy
+    global step, zs, ks, k_range, L, pref_inter, pref_QF,e_dd
+    params = np.empty_like(e_vals,dtype=tuple)
+    len_res = np.zeros_like(e_vals,dtype=float)
+    energies = np.zeros_like(e_vals,dtype=float)
 
-params = np.empty_like(e_vals,dtype=tuple)
-len_res = np.zeros_like(e_vals,dtype=float)
-energies = np.zeros_like(e_vals,dtype=float)
-
-for i,e_dd in enumerate(e_vals):
-    step, zs, ks, k_range, L = set_mesh(20*x_0[2])
-    bnds = (0.9,None),(0.1,None),(10*step,None),(None,None),(10*step,None)
-    pref_inter, pref_QF = get_coeff(D,e_dd,N)
-
-    res = minimize(particle_energy,x_0,bounds=bnds,args=(psi_0),method='L-BFGS-B')
-    
-    """while res.x[2] > L/15: # if grid is too small, boost to be at least 15x z length
-        step, zs, ks, k_range, L = set_mesh(50*res.x[2])
-        bnds = (0.9,None),(0.1,None),(10*step,None),(None,None),(10*step,None)
+    for i,e_dd in enumerate(e_vals):
+        # calculate interaction strengths for this e_dd
         pref_inter, pref_QF = get_coeff(D,e_dd,N)
-        res = minimize(particle_energy,x_0,bounds=bnds,args=(psi_0),method='L-BFGS-B')
-        print('hello there')"""
 
+        # grid wide enough, grid precise enough, no excessive sigmaz
+        #conditions = [False,False]
+        #counter = 0 # to break out of loop in case of disaster
+        while True: # until all conditions met
+            step, zs, ks, k_range, L = set_mesh(15*x_0[2])
+            bnds = (0.9,None),(0.1,None),(10*step,None),(None,None),(10*step,None)
+            if x_0[4] > 2*x_0[2]:
+                x_0[4] = x_0[2] / 10
+                x_0[3] = 0
+            res = minimize(particle_energy,x_0,bounds=bnds,args=(psi_0),method='L-BFGS-B')
+            x_0 = res.x
+            if 10*res.x[2] < L and L < 20*res.x[2]:
+                break
+
+        params[i] = res.x
+        len_res[i] = 10*step/z_len
+        energies[i] = particle_energy(res.x,psi_0)
+
+        # plot wavefunctions
+        if plotfreq != -1:
+            if i % plotfreq == 0: 
+                psisq = psi_0(zs,*res.x[2:])**2
+                ax2.plot(zs,psisq/(np.sum(psisq)*step))
+        print(i)
+
+    # turn into single array
+    params = np.stack(params)
     
-    params[i] = res.x
-    len_res[i] = 10*step/z_len
-    energies[i] = particle_energy(res.x,psi_0)
+    # eliminate noise from params graph
+    params[:,4] = np.where(np.abs(params[:,3])>0.01,params[:,4],np.zeros_like(e_vals))
 
-    # plot wavefunctions
-    if i % 10 == 0: 
-        psisq = psi_0(zs,*res.x[2:])**2
-        ax2.plot(zs,psisq/(np.sum(psisq)*step))
-    print(i)
-    # set next initial conditions b
-    x_0 = res.x*np.random.normal(1,0.05,(5))
-    if x_0[4] >= 2*x_0[2]: # try to prevent meaningless modulation contrib
-        x_0[4] = x_0[2]/10
-        x_0[3] = 0
+    return params,energies,len_res,e_vals
 
 
+
+x_0 = [1,1,z_len,0,0.1*z_len]
 ### PLOTTING ###
-params = np.stack(params)[1:]
-e_vals = e_vals[1:]
+'''e_vals = e_vals[1:]
 energies = energies[1:]
-len_res = len_res[1:]
+len_res = len_res[1:]'''
 
-# generate fig to plot wavefuncitions
-fig, axs = plt.subplots(2,3)
 
-for x in [0,1,2]:
-    axs[0,x].plot(e_vals,params[:,x],'.')
+# run twice and plot both sets of data
+for run in [-1,1]:
+    params, energies, len_res, e_vals = gen_data(np.linspace(1,2,50)[::run],x_0)
 
-axs[0,2].plot(e_vals,len_res)
-axs[1,0].plot(e_vals,contrast(np.abs(thet_wrap(params[:,3]))),'.')
-axs[1,1].plot(e_vals,params[:,4],'.')
-axs[1,1].plot(e_vals,len_res)
-axs[1,2].plot(e_vals,energies,'.')
+    for x in [0,1,2]:
+        axs[0,x].plot(e_vals,params[:,x],'.')
 
+    axs[0,2].plot(e_vals,len_res)
+    axs[1,0].plot(e_vals,contrast(np.abs(thet_wrap(params[:,3]))),'.')
+    axs[1,1].plot(e_vals,params[:,4],'.')
+    axs[1,1].plot(e_vals,len_res)
+    axs[1,2].plot(e_vals,energies,'.')
+
+# decorate with labels and all
 for ax in np.reshape(axs,(6)):
     ax.set_xlabel('e_dd')
 axs[0,0].set_ylabel('obliquity eta')
@@ -159,7 +171,7 @@ axs[1,2].set_ylabel('minimised energy / (hbar omega)')
 
 fig.suptitle(f'Parameter minima as a function of e_dd (D={D},a_ratio={a_ratio},N={N},res={RES})')  
 
-
+# victory
 plt.show()
 
 
