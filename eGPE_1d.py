@@ -6,7 +6,7 @@ from scipy.fftpack import diff
 import warnings
 import matplotlib.pyplot as plt
 import cProfile
-from copy import deepcopy
+from copy import copy, deepcopy
 warnings.filterwarnings('error')
 
 # set parameters
@@ -120,6 +120,10 @@ def gen_data(e_vals: np.ndarray, x_0: list, plotfreq=-1,save=False,modtype=-1):
                 x_0[4] = x_0[2] / 2
                 #x_0[3] = 0
 
+            # attempt to stimulate droplets
+            if i % 10 == 0:
+                x_0[3] = modtype*thetconstr
+
             res = minimize(particle_energy,x_0,bounds=bnds,args=(psi_0),method='L-BFGS-B')
             
             # upate starting point
@@ -134,11 +138,6 @@ def gen_data(e_vals: np.ndarray, x_0: list, plotfreq=-1,save=False,modtype=-1):
         len_res[i] = 10*step/z_len
         energies[i] = particle_energy(res.x,psi_0)
 
-        # plot wavefunctions
-        if plotfreq != -1:
-            if i % plotfreq == 0:
-                psisq = psi_0(zs,*res.x[2:])**2
-                ax2.plot(zs,psisq/(np.sum(psisq)*step))
         print(i)
 
     # turn into single array
@@ -151,9 +150,9 @@ def gen_data(e_vals: np.ndarray, x_0: list, plotfreq=-1,save=False,modtype=-1):
     # eliminate pre-collapse noise from modulation width graph
     params[:,4] = np.where(np.abs(params[:,3])>0.01,params[:,4],np.zeros_like(e_vals))
 
-    return params,energies,len_res,e_vals
+    return params,energies,len_res
 
-def plot_1d(axs,params,energies,len_res,e_vals):
+def plot_1d(axs,params,energies,e_vals):
     for x in [0,1,2]:
             axs[0,x].plot(e_vals,params[:,x],'.')
 
@@ -164,21 +163,48 @@ def plot_1d(axs,params,energies,len_res,e_vals):
     #axs[1,1].plot(e_vals,len_res)
     axs[1,2].plot(e_vals,energies,'.')
 
+def gen_data_2d(e_min=1,e_max=2,e_num=20,a_min=0.02,a_max=0.5,a_num=10):
+    global a_ratio, z_len
+    xvalslist = np.linspace(e_min,e_max,e_num,endpoint=True)
+    yvalslist = np.linspace(a_min,a_max,a_num,endpoint=True)
+    outMat = np.zeros((a_num,e_num,6),dtype=float)
+
+    for i, a_ratio in enumerate(yvalslist):
+        z_len = 1/a_ratio**0.5
+        es = xvalslist,xvalslist,xvalslist[::-1],xvalslist[::-1]
+        modtypes = -1,1,-1,1
+        x_0s = ([2,2,10*z_len,0,z_len],[2,2,10*z_len,0,z_len],
+        [10,2,2*z_len,-thetconstr,2*z_len],[10,2,2*z_len,thetconstr,2*z_len])
+        # arrays to overwrite with values for minimum energy
+        min_energies = 1000*np.ones_like(xvalslist,dtype=float)
+        min_params   = np.zeros((e_num,5),dtype=float)
+
+        # run twice and plot both sets of data, going from min and max e_dd.
+        for run in range(4):
+            params, energies, len_res = gen_data(es[run],x_0s[run],modtype=modtypes[run])
+
+            if run >= 2:
+                # flip direction on arrays with wrong e_dd order
+                params=np.flip(params,0)
+                energies=np.flip(energies)
+            replace = (energies<min_energies)
+            for pos in range(e_num):
+                # replace value in arrays if lower energy is found
+                if replace[pos]:
+                    min_energies[pos] = copy(energies[pos])
+                    min_params[pos] = copy(params[pos])
+        outMat[i] = np.concatenate((min_params,np.array([min_energies]).T),axis=1)
+    #np.savetxt('vals.csv',[xvalslist,yvalslist],delimiter=',')
+    return outMat,xvalslist,yvalslist
+
 ### PLOTTING ###
 if __name__ == "__main__":
     fig, axs = plt.subplots(2,3) # for variables
-    fig2,ax2 = plt.subplots()    # for wavefunction
 
-    e_vals = np.linspace(1.3,1.36,100)
-    es = e_vals,e_vals,e_vals[::-1],e_vals[::-1]
-    modtypes = -1,1,-1,1
-    x_0s = ([2,2,10*z_len,0,z_len],[2,2,10*z_len,0,z_len],
-     [10,2,z_len,-thetconstr,0.9*z_len],[10,2,z_len,thetconstr,0.9*z_len])
-
-    # run twice and plot both sets of data, going from min and max e_dd.
-    for run in range(4):
-        outs = gen_data(es[run],x_0s[run],modtype=modtypes[run])
-        plot_1d(axs,*outs)
+    outMat,e_vals,a_vals = gen_data_2d(1.31,1.35,100,0.3,0.5,1)
+    min_params = outMat[:,:,:5]
+    min_energies = outMat[:,:,5]
+    plot_1d(axs,min_params[0,:],min_energies[0,:],e_vals)
 
     # decorate with labels and all
     for ax in np.reshape(axs,(6)):
@@ -227,11 +253,11 @@ for i, a_ratio in enumerate(yvalslist):
 
         x_0 = res.x*np.random.normal(1,0.01,(5))
         #print(j)
-    print('NEW i = ',i)
+    print('NEW i = ',i)"""
 
 
 names = ['outputs_'+str(i)+'.csv' for i in range(6)]
 for i, name in enumerate(names):
     np.savetxt(name,outMat[:,:,i],delimiter=',')
-vals = np.savetxt('vals.csv',[xvalslist,yvalslist],delimiter=',')
-#"""
+
+#
