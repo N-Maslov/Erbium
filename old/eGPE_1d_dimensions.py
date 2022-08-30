@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.special as sc
-import ftransformer as ft
+import old.ftransformer as ft
 from scipy.optimize import minimize
 from scipy.fftpack import diff
 import warnings
