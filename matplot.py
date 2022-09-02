@@ -4,25 +4,35 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
-from eGPE_1d import contrast,plot_1d,decorate_1d
+from eGPE_1d import contrast,get_lifetimes,plot_1d,decorate_1d
 
 mode = '2d'
 
-fold = 'outputs\\' # blank for current dir, don't forget \\
+# load data
+fold = 'run_5_600x200\\' # blank for current dir, don't forget \\
 names = [fold+'outputs_'+str(i)+'.csv' for i in range(6)]
 outMats = []
 xvalslist = np.loadtxt(fold+'e_vals.csv',delimiter=',')
 yvalslist = np.loadtxt(fold+'a_vals.csv',delimiter=',')
 for i, name in enumerate(names):
     outMats.append(np.loadtxt(name,delimiter=','))
+lifetimes = np.loadtxt(fold+'lifetimes.csv',delimiter=',')
+
+### temporary area
+if mode == 'testing':
+    outMat = np.stack(outMats,axis=2)
+    lifetimes = get_lifetimes(outMat)
+    np.savetxt(fold+'lifetimes.csv',lifetimes,delimiter=',')
+
 
 # 2D plot
-if mode == '2d':
+elif mode == '2d':
     fig, ax = plt.subplots()
-    ax.imshow(outMats[0])
-    #ax.imshow(contrast(outMats[3]),cmap='hot')
-    #ax.imshow(np.transpose(yvalslist**0.5*np.transpose(outMats[2])),cmap='hot')
-    
+    #ax.imshow(outMats[2])
+    #ax.imshow((contrast(outMats[3])))
+    #ax.imshow(np.transpose(yvalslist**(0.5*1.67)*np.transpose(outMats[2])))
+    ax.imshow(np.log(lifetimes))
+
     nticksx = 11
     nticksy = nticksx
 
@@ -38,12 +48,13 @@ if mode == '2d':
 
     ax.set_xlabel('e_dd')
     ax.set_ylabel('omega_z/omega_r')
-    ax.set_aspect(3)
+    ax.set_aspect(7)
+    #ax.set_title('droplet width / longitudinal width')
 
 
 # slice plot
-else:
-    indx = 0
+elif mode == '1d':
+    indx = 55
     a_ratio = yvalslist[indx]
     fig,axs=plt.subplots(2,3)
     plot_1d(axs,np.concatenate((

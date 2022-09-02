@@ -1,9 +1,9 @@
-from logging import raiseExceptions
 import numpy as np
 import scipy.special as sc
 from scipy.optimize import minimize
 from scipy.fftpack import diff
 import matplotlib.pyplot as plt
+import time
 import cProfile
 from copy import copy, deepcopy
 
@@ -12,14 +12,14 @@ from copy import copy, deepcopy
 D = 5.64e-3         # overall interaction strength (FIXED) omega = 150 gives 5.46e-4 for erbium, 0.0108 for Dy
 e_dd = 1.40         # dipole interaction strength
 a_ratio = 0.3       # trap aspect ratio, omega_z / omega_R 
-N = 0.5e5           # number of particles 5.0e4 
+N = 5.0e4           # number of particles 5.0e4 
 
 # computational preferences
 thetconstr = np.arctan(1/2**0.5) # max modulation
 z_len = 1/a_ratio**0.5  # characteristic length of z-trap
 RES = 2**10             # array length for integral and FFT, fastest w/ power of 2, must be EVEN
 
-def set_mesh(L):
+def set_mesh(L:float) -> tuple:
     '''gets computational constants (step, zs, ks, k_range, l) for given grid size L'''
     step = L / RES # z increment
     zs = np.linspace(-L/2,L/2,RES,endpoint=False)
@@ -27,14 +27,14 @@ def set_mesh(L):
     k_range = ks[-1]-2*ks[0]+ks[1]
     return step, zs, ks, k_range, L
 
-def get_coeff(D,e_dd,N):
+def get_coeff(D:float,e_dd:float,N:float) -> tuple:
     '''gets coefficients for interaction and QF terms from parameters supplied'''
     A = D/e_dd # dimensionless scattering length
     pref_inter = A*N # prefactor for interaction term
     pref_QF = 512/(75*np.pi) * A**2.5 * N**1.5 * (1+1.5*e_dd**2) # prefactor for QF term
     return pref_inter, pref_QF
 
-def f_x4m(N,L,in_vect):
+def f_x4m(N:int,L:float,in_vect:np.ndarray) -> np.ndarray:
     """Approximates input as periodic sampled input.
     Input vector has N entries between +-L/2.
     Returns Fourier transformed array centred on zero to best match FT definition,
@@ -120,8 +120,10 @@ def gen_data(e_vals: np.ndarray, x_0: list,save=False,modtype=-1):
     # theta bounds based on whether we're probing positive or negative modulation
     if modtype == -1:
         thetbnds = (-thetconstr,0)
+        max_init_period = 10
     else:
         thetbnds = (0,thetconstr)
+        max_init_period = 2
 
     for i,e_dd in enumerate(e_vals):
         # calculate interaction strengths for this e_dd
@@ -133,8 +135,8 @@ def gen_data(e_vals: np.ndarray, x_0: list,save=False,modtype=-1):
             bnds = (0.9,None),(0.1,None),(10*step,None),thetbnds,(10*step,None)
 
             # prevent using modulation to vary wavefunction width
-            if x_0[4] > 2*x_0[2]:
-                x_0[4] = x_0[2] / 2
+            if x_0[4] > max_init_period*x_0[2]:
+                x_0[4] = max_init_period*x_0[2]/3
                 #x_0[3] = 0
 
             # attempt to stimulate droplets
@@ -144,7 +146,7 @@ def gen_data(e_vals: np.ndarray, x_0: list,save=False,modtype=-1):
             res = minimize(particle_energy,x_0,bounds=bnds,args=(psi_0),method='L-BFGS-B')
             
             # upate starting point
-            x_0 = deepcopy(res.x)#*np.random.normal(1,0.1,(5))
+            x_0 = deepcopy(res.x)*np.random.normal(1,0.05,(5))
 
             # Dynamic integration length set: break out only when grid is large enough to 
             # encompass wavefunction and fine enough to not miss small variations
@@ -154,7 +156,8 @@ def gen_data(e_vals: np.ndarray, x_0: list,save=False,modtype=-1):
             # force exit loop if infinite loop produced
             counter += 1
             if counter == 20:
-                raise RuntimeWarning('Unable to make correct gridsize: max iterations exceeded')
+                print(i, 'Unable to make correct gridsize: max iterations exceeded')
+                break
 
         # append values of parameters and energy into relevant arrays
         params[i] = res.x
@@ -184,15 +187,15 @@ def gen_data_2d(e_min=1,e_max=2,e_num=20,a_min=0.02,a_max=0.5,a_num=10):
     outMat = np.zeros((a_num,e_num,6),dtype=float)
 
     # cycle through different aspect ratios
-    for i, a_ratio in enumerate(yvalslist):
+    for j, a_ratio in enumerate(yvalslist):
         z_len = 1/a_ratio**0.5
 
         # Initialise passes for all 4 combinations of forward and back through e_dd,
         # and positive and negative modulation.
         es = xvalslist,xvalslist,xvalslist[::-1],xvalslist[::-1]
         modtypes = -1,1,-1,1
-        x_0s = ([2,2,10*z_len,0,z_len],[2,2,10*z_len,0,z_len],
-        [10,2,2*z_len,-thetconstr,2*z_len],[10,2,2*z_len,thetconstr,2*z_len])
+        x_0s = ([2,2,2.5/a_ratio**0.8,0,z_len],[2,2,2.5/a_ratio**0.8,0,z_len],
+        [10,2,1,-thetconstr,1.5],[10,2,1,thetconstr,1.5])
 
         # arrays to overwrite with values for minimum energy
         min_energies = 1000*np.ones_like(xvalslist,dtype=float)
@@ -201,7 +204,7 @@ def gen_data_2d(e_min=1,e_max=2,e_num=20,a_min=0.02,a_max=0.5,a_num=10):
         # Out of 4 passes, points are chosen that have minimum energy.
         # This is to attempt to find global minima.
         for run in range(4):
-            params, energies,= gen_data(es[run],x_0s[run],modtype=modtypes[run])
+            params, energies = gen_data(es[run],x_0s[run],modtype=modtypes[run])
 
             if run >= 2:
                 # flip direction on arrays with wrong e_dd order
@@ -214,9 +217,33 @@ def gen_data_2d(e_min=1,e_max=2,e_num=20,a_min=0.02,a_max=0.5,a_num=10):
                     min_energies[pos] = copy(energies[pos])
                     min_params[pos] = copy(params[pos])
             print(' ->',run)
-        outMat[i] = np.concatenate((min_params,np.array([min_energies]).T),axis=1)
-        print(i)
+            #plot_1d(axs,params,energies,xvalslist)
+        outMat[j] = np.concatenate((min_params,np.array([min_energies]).T),axis=1)
+        print(j)
+        
     return outMat,xvalslist,yvalslist
+
+def get_lifetimes(paramMat,k=1):
+    '''Returns matrix of estimates of 3-body loss decay times based on first moment of density'''
+    # Initialise output array
+    lifeMat = np.empty(paramMat.shape[:2],dtype=float)
+    for i, a_data in enumerate(paramMat):
+        for j, params in enumerate(a_data):
+            # initialise grid
+            L_integ = 20*params[2]
+            step = L_integ/RES
+            z_vals = np.linspace(-L_integ/2,L_integ/2,RES)
+
+            # normalise wavefunction
+            psi_sq = psi_0(z_vals,*params[2:5])**2
+            N_corr = np.sum(psi_sq)*step
+            psi_sq = psi_sq/N_corr
+
+            # calculate decay time and add to output matrix
+            lifeMat[i,j] = 1/(k*np.sum(psi_sq**3))
+
+        print('lifetimes:',i)
+    return lifeMat
 
 ''' ~ ~ ~ SECTION 3: 1D DISPLAY ~ ~ ~ '''
 def plot_1d(axs,params,energies,e_vals):
@@ -244,11 +271,13 @@ def decorate_1d(fig,axs,arat=a_ratio):
 ''' ~ ~ ~ SECTION 4: RUNNING ~ ~ ~ '''
 if __name__ == "__main__":
     fig, axs = plt.subplots(2,3) # for variables
+    start_time = time.time()
 
     # generate data and store in arrays
-    outMat,e_vals,a_vals = gen_data_2d(1.31,1.35,100,0.3,0.4,1)
+    outMat,e_vals,a_vals = gen_data_2d(1.30,1.32,5,0.41,0.43,5)
     min_params = outMat[:,:,:5]
     min_energies = outMat[:,:,5]
+    lifetimes = get_lifetimes(outMat)
 
     # save data to outputs folder
     names = ['outputs\\outputs_'+str(i)+'.csv' for i in range(6)]
@@ -256,3 +285,6 @@ if __name__ == "__main__":
         np.savetxt(name,outMat[:,:,i],delimiter=',')
     np.savetxt('outputs\\e_vals.csv',e_vals,delimiter=',')
     np.savetxt('outputs\\a_vals.csv',a_vals,delimiter=',')
+    np.savetxt('outputs\\lifetimes.csv',lifetimes,delimiter=',')
+
+    print('Total run time: ',time.time()-start_time)
