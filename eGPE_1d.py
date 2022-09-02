@@ -4,12 +4,15 @@ from scipy.optimize import minimize
 from scipy.fftpack import diff
 import matplotlib.pyplot as plt
 import time
+from datetime import datetime
 import cProfile
+from os import mkdir
 from copy import copy, deepcopy
+from multiprocessing import Pool
 
 ''' ~ ~ ~ SECTION 1: ENERGY CALCULATION ~ ~ ~  '''
 # set parameters
-D = 5.64e-3         # overall interaction strength (FIXED) omega = 150 gives 5.46e-4 for erbium, 0.0108 for Dy
+D = 5.46e-3         # overall interaction strength (FIXED) omega = 150 gives 5.46e-3 for erbium, 0.0108 for Dy
 e_dd = 1.40         # dipole interaction strength
 a_ratio = 0.3       # trap aspect ratio, omega_z / omega_R 
 N = 5.0e4           # number of particles 5.0e4 
@@ -33,6 +36,11 @@ def get_coeff(D:float,e_dd:float,N:float) -> tuple:
     pref_inter = A*N # prefactor for interaction term
     pref_QF = 512/(75*np.pi) * A**2.5 * N**1.5 * (1+1.5*e_dd**2) # prefactor for QF term
     return pref_inter, pref_QF
+
+def get_D(f:float,mu=7,m=166) -> float:
+    '''Returns dimensionless interaction strength D=a_dd/l for given frequency,
+    and optionally magnetic moment (in mu_b) and mass, default to Erbium.'''
+    return 4.257817572e-9 * np.sqrt(m**3*f)*mu**2
 
 def f_x4m(N:int,L:float,in_vect:np.ndarray) -> np.ndarray:
     """Approximates input as periodic sampled input.
@@ -216,8 +224,7 @@ def gen_data_2d(e_min=1,e_max=2,e_num=20,a_min=0.02,a_max=0.5,a_num=10):
                 if replace[pos]:
                     min_energies[pos] = copy(energies[pos])
                     min_params[pos] = copy(params[pos])
-            print(' ->',run)
-            #plot_1d(axs,params,energies,xvalslist)
+            #print(' ->',run)
         outMat[j] = np.concatenate((min_params,np.array([min_energies]).T),axis=1)
         print(j)
         
@@ -234,15 +241,18 @@ def get_lifetimes(paramMat,k=1):
             step = L_integ/RES
             z_vals = np.linspace(-L_integ/2,L_integ/2,RES)
 
-            # normalise wavefunction
-            psi_sq = psi_0(z_vals,*params[2:5])**2
+            # calculate and normalise wavefunction, accounting for ZeroDivisionError without modulation
+            if params[4] == 0:
+                psi_sq = psi_0(z_vals,*params[2:4],0.001)
+            else:
+                psi_sq = psi_0(z_vals,*params[2:5])**2
             N_corr = np.sum(psi_sq)*step
             psi_sq = psi_sq/N_corr
 
             # calculate decay time and add to output matrix
             lifeMat[i,j] = 1/(k*np.sum(psi_sq**3))
 
-        print('lifetimes:',i)
+        #print('lifetimes:',i)
     return lifeMat
 
 ''' ~ ~ ~ SECTION 3: 1D DISPLAY ~ ~ ~ '''
@@ -269,22 +279,58 @@ def decorate_1d(fig,axs,arat=a_ratio):
     fig.suptitle(f'Parameter minima as a function of e_dd (D={D},a_ratio={arat},N={N},res={RES})') 
 
 ''' ~ ~ ~ SECTION 4: RUNNING ~ ~ ~ '''
-if __name__ == "__main__":
-    fig, axs = plt.subplots(2,3) # for variables
-    start_time = time.time()
+def save_grid(item:int) -> None:
+    '''Takes process index. Finds corresponding values of N,D and 
+    ranges of a_ratio and e_dd supplied. Calls gen_data_2d and saves
+    all results in a directory indexed by that item.'''
 
-    # generate data and store in arrays
-    outMat,e_vals,a_vals = gen_data_2d(1.30,1.32,5,0.41,0.43,5)
-    min_params = outMat[:,:,:5]
-    min_energies = outMat[:,:,5]
+    start_time = time.time()
+    global N,D
+    N = Ns[item]
+    f = fs[item]
+    D = get_D(f)
+
+    # Make folder to dump results to
+    dir_name = 'run_'+str(item)
+    try:
+        mkdir('run_'+str(item))
+    except FileExistsError:
+        pass
+    
+    # Generate parameters, energies, lifetimes
+    outMat,e_vals,a_vals = gen_data_2d(start_es[item],end_es[item],num_es[item],
+        start_as[item],end_as[item],num_as[item])
     lifetimes = get_lifetimes(outMat)
 
-    # save data to outputs folder
-    names = ['outputs\\outputs_'+str(i)+'.csv' for i in range(6)]
+    # Save outputs in folder
+    names = [dir_name+'\\outputs_'+str(i)+'.csv' for i in range(6)]
     for i, name in enumerate(names):
         np.savetxt(name,outMat[:,:,i],delimiter=',')
-    np.savetxt('outputs\\e_vals.csv',e_vals,delimiter=',')
-    np.savetxt('outputs\\a_vals.csv',a_vals,delimiter=',')
-    np.savetxt('outputs\\lifetimes.csv',lifetimes,delimiter=',')
+    np.savetxt(dir_name+'\\e_vals.csv',e_vals,delimiter=',')
+    np.savetxt(dir_name+'\\a_vals.csv',a_vals,delimiter=',')
+    np.savetxt(dir_name+'\\lifetimes.csv',lifetimes,delimiter=',')
 
-    print('Total run time: ',time.time()-start_time)
+    # Generate txt description of run
+    with open(dir_name+'\\settings.txt','w') as file:
+        file.write(f'Run{item}, {datetime.now()}\
+        \nNumber of atoms: {N}, radial frequency: {f} Hz (D={D})\
+        \nAspect ratios (min, max, num) = ({start_as[item]},{end_as[item]},{num_as[item]})\
+        \ne_dd values (min, max, num) = ({start_es[item]},{end_es[item]},{num_es[item]})\
+        \nTotal run time: {time.time()-start_time} s')
+
+num_runs = 1
+
+start_es = [1.25 for _ in range(num_runs)]
+end_es   = [1.5 for _ in range(num_runs)]
+num_es   = [20 for _ in range(num_runs)]
+
+start_as = [0.02 for _ in range(num_runs)]
+end_as   = [0.6 for _ in range(num_runs)]
+num_as   = [5 for _ in range(num_runs)]
+
+Ns = [5.e4]
+fs = [150]
+
+if __name__ == "__main__":
+    with Pool(1) as p:
+        p.map(save_grid,range(num_runs))
