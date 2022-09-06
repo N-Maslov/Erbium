@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import time
 from datetime import datetime
 import cProfile
-from os import mkdir
+from os import mkdir, cpu_count
 from copy import copy, deepcopy
 from multiprocessing import Pool
 
@@ -52,13 +52,13 @@ def f_x4m(N:int,L:float,in_vect:np.ndarray) -> np.ndarray:
     x4m = np.fft.fftshift(x4m)
     return x4m
 
-def inv_f_x4m(N,k_range,in_vect):
+def inv_f_x4m(N:int,k_range:float,in_vect:np.ndarray) -> np.ndarray:
     """Inverse fourier transform. Designed for compatibility with f_x4m."""
     inv_input = in_vect[::-1]
     x4m = f_x4m(N,k_range,np.concatenate(([0],inv_input[:-1])))
     return 1/(2*np.pi)*x4m
 
-def particle_energy(psi_args,psi_0):
+def particle_energy(psi_args:tuple,psi_0:function) -> float:
     """Calculate dimensionless per-particle energy given
      - longitudinal functional form psi_0(z,*args)
      - arguments for psi, the first two of which must be anisotropy eta
@@ -91,7 +91,7 @@ def particle_energy(psi_args,psi_0):
         pref_QF*np.abs(psis/l)**3 + pref_inter/l**2*Phis + 1/2*a_ratio**2*zs**2
     ) + psis@KE_contribs)
 
-def U_sig(ks,eta,l):
+def U_sig(ks:np.ndarray,eta:float,l:float) -> np.ndarray:
     """Calculate approximation function for 2D fourier transform
     (intermediate calculation for particle_energy)"""
     Q_sqs = 1/2*eta**0.5*(ks*l)**2
@@ -128,7 +128,7 @@ def gen_data(e_vals: np.ndarray, x_0: list,save=False,modtype=-1):
     # theta bounds based on whether we're probing positive or negative modulation
     if modtype == -1:
         thetbnds = (-thetconstr,0)
-        max_init_period = 10
+        max_init_period = 3
     else:
         thetbnds = (0,thetconstr)
         max_init_period = 2
@@ -136,7 +136,11 @@ def gen_data(e_vals: np.ndarray, x_0: list,save=False,modtype=-1):
     for i,e_dd in enumerate(e_vals):
         # calculate interaction strengths for this e_dd
         pref_inter, pref_QF = get_coeff(D,e_dd,N)
-    
+
+        #attempt to stimulate droplets
+        if i % 10 == 0:
+            x_0[3] = modtype*thetconstr
+
         counter = 0
         while True:
             step, zs, ks, k_range, L = set_mesh(20*x_0[2])
@@ -147,14 +151,10 @@ def gen_data(e_vals: np.ndarray, x_0: list,save=False,modtype=-1):
                 x_0[4] = max_init_period*x_0[2]/3
                 #x_0[3] = 0
 
-            # attempt to stimulate droplets
-            if i % 10 == 0:
-                x_0[3] = modtype*thetconstr
-
             res = minimize(particle_energy,x_0,bounds=bnds,args=(psi_0),method='L-BFGS-B')
             
             # upate starting point
-            x_0 = deepcopy(res.x)*np.random.normal(1,0.05,(5))
+            x_0 = deepcopy(res.x)#*np.random.normal(1,0.05,(5))
 
             # Dynamic integration length set: break out only when grid is large enough to 
             # encompass wavefunction and fine enough to not miss small variations
@@ -183,7 +183,7 @@ def gen_data(e_vals: np.ndarray, x_0: list,save=False,modtype=-1):
 
     return params,energies
 
-def gen_data_2d(e_min=1,e_max=2,e_num=20,a_min=0.02,a_max=0.5,a_num=10):
+def gen_data_2d(e_min=1.25,e_max=1.5,e_num=20,a_min=0.02,a_max=0.5,a_num=10):
     '''Generates matrices containing values of each parameter and energies
     for a range of e_dd and aspect ratios specified in arguments.
     Returns an (n*m*6) matrix with them and arrays of e_dd and a_ratio'''
@@ -243,14 +243,14 @@ def get_lifetimes(paramMat,k=1):
 
             # calculate and normalise wavefunction, accounting for ZeroDivisionError without modulation
             if params[4] == 0:
-                psi_sq = psi_0(z_vals,*params[2:4],0.001)
+                psi_sq = psi_0(z_vals,*params[2:4],0.001)**2
             else:
                 psi_sq = psi_0(z_vals,*params[2:5])**2
             N_corr = np.sum(psi_sq)*step
             psi_sq = psi_sq/N_corr
 
             # calculate decay time and add to output matrix
-            lifeMat[i,j] = 1/(k*np.sum(psi_sq**3))
+            lifeMat[i,j] = 1/(k*np.sum(psi_sq**3*step))
 
         #print('lifetimes:',i)
     return lifeMat
@@ -284,6 +284,7 @@ def save_grid(item:int) -> None:
     ranges of a_ratio and e_dd supplied. Calls gen_data_2d and saves
     all results in a directory indexed by that item.'''
 
+    # initialise run based on run index
     start_time = time.time()
     global N,D
     N = Ns[item]
@@ -300,7 +301,7 @@ def save_grid(item:int) -> None:
     # Generate parameters, energies, lifetimes
     outMat,e_vals,a_vals = gen_data_2d(start_es[item],end_es[item],num_es[item],
         start_as[item],end_as[item],num_as[item])
-    lifetimes = get_lifetimes(outMat)
+    lifetimes = get_lifetimes(outMat,6.e11/((2*np.pi*f)**3 * N**2))
 
     # Save outputs in folder
     names = [dir_name+'\\outputs_'+str(i)+'.csv' for i in range(6)]
@@ -312,25 +313,30 @@ def save_grid(item:int) -> None:
 
     # Generate txt description of run
     with open(dir_name+'\\settings.txt','w') as file:
-        file.write(f'Run{item}, {datetime.now()}\
+        file.write(f'{N} {f}\
+        \nRun{item}, {datetime.now()}\
         \nNumber of atoms: {N}, radial frequency: {f} Hz (D={D})\
         \nAspect ratios (min, max, num) = ({start_as[item]},{end_as[item]},{num_as[item]})\
         \ne_dd values (min, max, num) = ({start_es[item]},{end_es[item]},{num_es[item]})\
         \nTotal run time: {time.time()-start_time} s')
 
+###### Change items from here on ###### 
+
+# Set parameters for individual runs on separate processes
 num_runs = 1
 
 start_es = [1.25 for _ in range(num_runs)]
 end_es   = [1.5 for _ in range(num_runs)]
-num_es   = [20 for _ in range(num_runs)]
+num_es   = [150 for _ in range(num_runs)]
 
-start_as = [0.02 for _ in range(num_runs)]
-end_as   = [0.6 for _ in range(num_runs)]
-num_as   = [5 for _ in range(num_runs)]
+start_as = [0.34 for _ in range(num_runs)]
+end_as   = [0.4 for _ in range(num_runs)]
+num_as   = [2 for _ in range(num_runs)]
 
 Ns = [5.e4]
 fs = [150]
 
 if __name__ == "__main__":
-    with Pool(1) as p:
+    # Create processes on separate cores
+    with Pool(min(num_runs,cpu_count())) as p:
         p.map(save_grid,range(num_runs))
