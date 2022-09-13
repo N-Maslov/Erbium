@@ -1,3 +1,4 @@
+from typing import Callable
 import numpy as np
 import scipy.special as sc
 from scipy.optimize import minimize
@@ -58,7 +59,7 @@ def inv_f_x4m(N:int,k_range:float,in_vect:np.ndarray) -> np.ndarray:
     x4m = f_x4m(N,k_range,np.concatenate(([0],inv_input[:-1])))
     return 1/(2*np.pi)*x4m
 
-def particle_energy(psi_args:tuple,psi_0:function) -> float:
+def particle_energy(psi_args:tuple,psi_0:Callable) -> float:
     """Calculate dimensionless per-particle energy given
      - longitudinal functional form psi_0(z,*args)
      - arguments for psi, the first two of which must be anisotropy eta
@@ -115,7 +116,7 @@ def contrast(theta):
     '''Gets contrast from modulation strength parameter'''
     return (2**1.5 * np.sin(2*theta))/(3-np.cos(2*theta))
 
-''' ~ ~ ~ SECTION 2: ENERGY MINIMISATION ~ ~ ~ '''
+''' ~ ~ ~ SECTION 2: DATA GENERATION ~ ~ ~ '''
 def gen_data(e_vals: np.ndarray, x_0: list,save=False,modtype=-1):
     '''Sweeps across e_dd, minimising the energy for each.
     Outputs lists of parameters and associated energies.'''
@@ -325,9 +326,9 @@ def save_grid(item:int) -> None:
 # Set parameters for individual runs on separate processes
 num_runs = 1
 
-start_es = [1.25 for _ in range(num_runs)]
+start_es = [1.1 for _ in range(num_runs)]
 end_es   = [1.5 for _ in range(num_runs)]
-num_es   = [150 for _ in range(num_runs)]
+num_es   = [100 for _ in range(num_runs)]
 
 start_as = [0.34 for _ in range(num_runs)]
 end_as   = [0.4 for _ in range(num_runs)]

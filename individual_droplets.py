@@ -1,14 +1,13 @@
 from typing import Callable
 import numpy as np
-import scipy.special as sc
+from scipy.special import expi
+from scipy.signal import find_peaks
 from scipy.optimize import minimize
 from scipy.fftpack import diff
 import matplotlib.pyplot as plt
 import cProfile
 from copy import deepcopy, copy
 import matplotlib.animation as animation
-import warnings
-warnings.filterwarnings('error')
 
 ''' ~ ~ ~ SECTION 1: ENERGY CALCULATION ~ ~ ~  '''
 # set parameters
@@ -79,7 +78,9 @@ def particle_energy(psi_args:tuple,psi_0:Callable) -> float:
         psis = psis/N_corr**0.5
         psisq = psisq/N_corr
     except RuntimeWarning:
-        print(N_corr)
+        print(f'error occured: normalisation failed. N_corr={N_corr}')
+        plt.plot(zs,psis)
+        plt.show()
     F_psi_sq = f_x4m(RES,L,psisq)
 
     # get kinetic energies for each point
@@ -102,40 +103,38 @@ def U_sig(ks:np.ndarray,eta:float,l:float) -> np.ndarray:
     Q_sqs[int(RES/2)] = 1.e-18
     # normal calculation
     numerat = np.where(Q_sqs<703,
-        3*(Q_sqs*np.exp(Q_sqs)*sc.expi(-Q_sqs)+1),3/Q_sqs)
+        3*(Q_sqs*np.exp(Q_sqs)*expi(-Q_sqs)+1),3/Q_sqs)
     # high value limit automatically zero now
     return 1+e_dd * (numerat/(1+eta)-1)
 
 # set wavefunctions
+def psi_0(z,s,a):
+    x = z/s
+    return 1/(1 + 1/20*x**2 + 21/800*x**4 + (a*x)**6)**10
 psi_1 = lambda z,s: np.exp(-z**2/(2*s**2))
 psi_2 = lambda z,s,w: np.exp(-(z-w/2)**2/(2*s**2)) + np.exp(-(z+w/2)**2/(2*s**2))
-psi_3 = lambda z,s,w,h: np.exp(-h)*(np.exp(-(z-w)**2/(2*s**2)) + np.exp(-(z+w)**2/(2*s**2))) + psi_1(z,s)
-psi_4 = lambda z,s,w,h: np.exp(-h)*(np.exp(-(z-3*w/2)**2/(2*s**2)) + np.exp(-(z+3*w/2)**2/(2*s**2))) + psi_2(z,s,w)
-psi_5 = lambda z,s,w,h: np.exp(-2*h)*(np.exp(-(z-2*w)**2/(2*s**2)) + np.exp(-(z+2*w)**2/(2*s**2))) + psi_3(z,s,w,h)
-
-funcs = (psi_1,psi_2,psi_3,psi_4,psi_5)
+psi_3 = lambda z,s,w,h_1: h_1*(np.exp(-(z-w)**2/(2*s**2)) + np.exp(-(z+w)**2/(2*s**2))) + psi_1(z,s)
+psi_4 = lambda z,s,w,h_1: h_1*(np.exp(-(z-3*w/2)**2/(2*s**2)) + np.exp(-(z+3*w/2)**2/(2*s**2))) + psi_2(z,s,w)
+psi_5 = lambda z,s,w,h_1,h_2: h_2*(np.exp(-(z-2*w)**2/(2*s**2)) + np.exp(-(z+2*w)**2/(2*s**2))) + psi_3(z,s,w,h_1)
+psi_6 = lambda z,s,w,h_1,h_2: h_2*(np.exp(-(z-5*w/2)**2/(2*s**2)) + np.exp(-(z+5*w/2)**2/(2*s**2))) + psi_4(z,s,w,h_1)
+funcs = (psi_0,psi_2,psi_3,psi_4,psi_5,psi_6)
 
 ### minimiser ###
 def gen_data(n,e_vals: np.ndarray, x_0: list,save=False,plot=-1):
     '''Sweeps across e_dd, minimising the energy for each.
     Outputs lists of parameters and associated energies.'''
+    print(f'MINIMISATION: {n} DROPLETS')
 
     # cannot be local variables as they are changed here and referenced in particle_energy
     global step, zs, ks, k_range, L, pref_inter, pref_QF,e_dd
     params = np.empty_like(e_vals,dtype=tuple)
     energies = np.zeros_like(e_vals,dtype=float)
+
     func = funcs[n-1]
-    bnds = [(0.1,None),(0.01,None),()]
-    if n == 1:
-        n_params = 3
-    elif n ==2:
-        n_params = 4
-    else:
-        n_params = 5
-    bnds = [() for _ in range(n_params)]
+    n_params = func.__code__.co_argcount+1
+
+    bnds = [(None,None) if i <= 3 else (0,2) for i in range(n_params)]
     bnds[0], bnds[1] = (0.1,None),(0.01,None)
-    if n_params == 5:
-        bnds[4] = (0,None)
 
     for i,e_dd in enumerate(e_vals):
         # calculate interaction strengths for this e_dd
@@ -145,6 +144,7 @@ def gen_data(n,e_vals: np.ndarray, x_0: list,save=False,plot=-1):
         while True:
             if n == 1:
                 step, zs, ks, k_range, L = set_mesh(40*x_0[2])
+                bnds[3] = (0,2)
             else:
                 if n%2 == 0:
                     step, zs, ks, k_range, L = set_mesh((n-1)*x_0[3]+40*x_0[2])
@@ -195,6 +195,48 @@ def gen_data(n,e_vals: np.ndarray, x_0: list,save=False,plot=-1):
 
     return params,energies
 
+
+def get_contrast(n,params):
+    '''Returns wavefunction contrast in centre for n droplets with parameters array params'''
+    if n == 1:
+        return 1
+    # set integration range
+    L_set = 40*params[2]
+    if n%2 == 0: # even droplets
+        L_set += (n-1)*params[3]
+    else: # odd droplets
+        L_set += n*params[3]
+
+    func = funcs[n-1]
+    zs = set_mesh(L_set)[1]
+    psisq = func(zs,*params[2:])
+
+    if n%2 == 0:
+        psisq_min = func(0,*params[2:])
+        psisq_max = np.amax(psisq)
+    else:
+        psisq_max = func(0,*params[2:])
+        min_positions = find_peaks(-psisq)[0]
+        min_vals = np.array([psisq[x] for x in min_positions])
+        psisq_min = np.amax(min_vals)
+
+    return (psisq_max-psisq_min)/(psisq_max+psisq_min)
+
+def get_minima(params_arrays,energies_arrays,ns):
+    min_energies = 1000*np.ones_like(energies_arrays[0],dtype=float)
+    min_params = np.empty_like(energies_arrays[0],dtype=object)
+    min_ns = np.empty_like(energies_arrays[0],dtype=int)
+
+    for run,energies in enumerate(energies_arrays):
+        replace = (energies < min_energies)
+        for pos in range(len(energies)):
+            if replace[pos]:
+                min_energies[pos] = copy(energies[pos])
+                min_params[pos] = copy(params_arrays[run][pos])
+                min_ns[pos] = ns[run]
+
+    return min_energies,min_params,min_ns
+
 def plot_1d(n,fig,axs,params,energies,e_vals,arat):
     '''Generates 6 plots as a function of e_dd:
     one for each parameter and one for energy.'''
@@ -231,51 +273,39 @@ def animate(i,ax1,ns,params,xvalslist):
     
 D = get_D(227)
 a_ratio = 0.1388
+
 if __name__ == '__main__':
     # generate data
-    e_vals=np.linspace(1.25,1.5,200)[::1]
+    e_vals=np.linspace(1.21,1.42,100)[::1]
 
-    params1,energies1 = gen_data(1,e_vals,[1,1,1])
-    params2,energies2 = gen_data(2,e_vals,[1,1,1,5])
-    params3,energies3 = gen_data(3,e_vals,[1,1,1,5,0.9])
-    params4,energies4 = gen_data(4,e_vals,[1,1,1,5,0.9],plot=-1)
-    params5,energies5 = gen_data(5,e_vals,[1,1,1,5,0.9],plot=-1)
-
+    #params1,energies1 = gen_data(1,e_vals,[1,1,1,0.02])
+    #params2,energies2 = gen_data(2,e_vals,[1,1,1,5])
+    #params3,energies3 = gen_data(3,e_vals,[1,1,1,5,0.9])
+    params4,energies4 = gen_data(4,e_vals,[1,1,1,5,0.9])
+    params5,energies5 = gen_data(5,e_vals,[1,1,1,5,0.5,0.5])
+    #params6,energies6 = gen_data(6,e_vals,[1,1,1,5,0.5,0.5])
+    e_vals=e_vals[::-1]
+    params41,energies41 = gen_data(4,e_vals,[1,1,1,5,0.9])
+    params51,energies51 = gen_data(5,e_vals,[1,1,1,5,0.5,0.5])   
     # find where energy is minimum
-    params = params1,params2,params3,params4,params5
-    energies = energies1,energies2,energies3,energies4,energies5
+    min_energies,min_params,min_ns=get_minima(
+        (params4,params5,params41[::-1],params51[::-1]),
+        (energies4,energies5,energies41[::-1],energies51[::-1]),
+        (4,5,4,5))
 
-    min_energies = 1000*np.ones_like(e_vals,dtype=float)
-    min_params = np.empty_like(e_vals,dtype=object)
-    min_ns = np.empty_like(e_vals,dtype=int)
+    contrasts = np.zeros_like(e_vals,dtype=float)
+    for index,n in enumerate(min_ns):
+        contrasts[index] = get_contrast(n,min_params[index])
+    plt.plot(e_vals,contrasts)
+    plt.show()
 
-    for run in range(5):
-        n = run+1
-        replace = (energies[run] < min_energies)
-        for pos in range(len(e_vals)):
-            if replace[pos]:
-                min_energies[pos] = copy(energies[run][pos])
-                min_params[pos] = copy(params[run][pos])
-                min_ns[pos] = n
-
-    params=np.stack(params1),np.stack(params2),np.stack(params3),np.stack(params4),np.stack(params5)
-    for i in range(5):
-        np.savetxt('params'+str(i)+'.csv',params[i],delimiter=',')
-        np.savetxt('energies'+str(i)+'.csv',energies[i],delimiter=',')
+    np.savetxt('energies_new.csv',min_energies,delimiter=',')
+    np.save('params.npy',min_params)
 
     # animate evolution
     fig1,ax1 = plt.subplots()
 
     ani = animation.FuncAnimation(fig1, animate, range(len(e_vals)),
-        interval=100,fargs=(ax1,min_ns,min_params,e_vals))
+        interval=300,fargs=(ax1,min_ns,min_params,e_vals))
     plt.show()
-    ani.save('psi_evolution.gif','pillow')
-
-    fig,axs=plt.subplots(2,3)
-    plot_1d(5,fig,axs,params5,energies5,65.5/e_vals,a_ratio)
-    plot_1d(4,fig,axs,params4,energies4,65.5/e_vals,a_ratio)
-    plot_1d(3,fig,axs,params3,energies3,65.5/e_vals,a_ratio)
-    plot_1d(2,fig,axs,params2,energies2,65.5/e_vals,a_ratio)
-    plot_1d(1,fig,axs,params1,energies1,65.5/e_vals,a_ratio)
- 
-    plt.show()
+    #ani.save('psi_evolution.gif','pillow')
