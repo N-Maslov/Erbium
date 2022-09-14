@@ -7,7 +7,9 @@ from scipy.fftpack import diff
 import matplotlib.pyplot as plt
 import cProfile
 from copy import deepcopy, copy
+from tqdm import tqdm
 import matplotlib.animation as animation
+from multiprocessing import Pool
 
 ''' ~ ~ ~ SECTION 1: ENERGY CALCULATION ~ ~ ~  '''
 # set parameters
@@ -17,7 +19,6 @@ a_ratio = 0.3       # trap aspect ratio, omega_z / omega_R
 N = 5.0e4           # number of particles 5.0e4 
 
 # computational preferences
-z_len = 1/a_ratio**0.5  # characteristic length of z-trap
 RES = 2**12             # array length for integral and FFT, fastest w/ power of 2, must be EVEN
 
 def set_mesh(L:float) -> tuple:
@@ -90,7 +91,7 @@ def particle_energy(psi_args:tuple,psi_0:Callable) -> float:
     Phis = np.real(inv_f_x4m(RES,k_range,U_sig(ks,eta,l)*F_psi_sq))
 
     # sum all energy terms
-    return 0.25*(eta+1/eta)/l**2 + 0.25*l**2*((151/227)**2*eta+1/eta) + step*(psisq @ (
+    return 0.25*(eta+1/eta)*(l**2+1/l**2) + step*(psisq @ (
         pref_QF*np.abs(psis/l)**3 + pref_inter/l**2*Phis + 1/2*a_ratio**2*zs**2
     ) + psis@KE_contribs)
 
@@ -120,13 +121,14 @@ psi_6 = lambda z,s,w,h_1,h_2: h_2*(np.exp(-(z-5*w/2)**2/(2*s**2)) + np.exp(-(z+5
 funcs = (psi_0,psi_2,psi_3,psi_4,psi_5,psi_6)
 
 ### minimiser ###
-def gen_data(n,e_vals: np.ndarray, x_0: list,save=False,plot=-1):
+def gen_data(n,e_vals: np.ndarray, aspect:float, x_0: list,save=False,plot=-1):
     '''Sweeps across e_dd, minimising the energy for each.
     Outputs lists of parameters and associated energies.'''
-    print(f'MINIMISATION: {n} DROPLETS')
+    #print(f'MINIMISATION: {n} DROPLETS')
 
     # cannot be local variables as they are changed here and referenced in particle_energy
-    global step, zs, ks, k_range, L, pref_inter, pref_QF,e_dd
+    global step, zs, ks, k_range, L, pref_inter, pref_QF,e_dd, a_ratio
+    a_ratio = aspect
     params = np.empty_like(e_vals,dtype=tuple)
     energies = np.zeros_like(e_vals,dtype=float)
 
@@ -156,7 +158,7 @@ def gen_data(n,e_vals: np.ndarray, x_0: list,save=False,plot=-1):
             res = minimize(particle_energy,x_0,bounds=bnds,args=(func),method='L-BFGS-B')
             
             # upate starting point
-            x_0 = deepcopy(res.x)*np.random.normal(1,0.05,(n_params))
+            x_0 = deepcopy(res.x)#*np.random.normal(1,0.05,(n_params))
 
             # Dynamic integration length set: break out only when grid is large enough to 
             # encompass wavefunction and fine enough to not miss small variations
@@ -179,7 +181,6 @@ def gen_data(n,e_vals: np.ndarray, x_0: list,save=False,plot=-1):
         params[i] = res.x
         energies[i] = res.fun
 
-        print(i)
         if plot!=-1 and i%plot == 0:
             psisq = func(zs,*params[i][2:])**2
             plt.plot(zs,psisq/(np.sum(psisq)*step))
@@ -195,11 +196,57 @@ def gen_data(n,e_vals: np.ndarray, x_0: list,save=False,plot=-1):
 
     return params,energies
 
+def gen_data_2d(e_min=1.25,e_max=1.5,e_num=20,a_min=0.02,a_max=0.5,a_num=10):
+    '''Generates matrices containing values of each universal parameter and energies
+    for a range of e_dd and aspect ratios specified in arguments.'''
+    global a_ratio
+    xvalslist = np.linspace(e_min,e_max,e_num,endpoint=True)
+    yvalslist = np.linspace(a_min,a_max,a_num,endpoint=True)
+    # numbers of droplets to try
+    ns = [1,2,3,4,5]
+
+    # generate output matrix
+    outMat = np.zeros((10,a_num,e_num),dtype=float)
+        
+    # create progress bar
+    
+    # cycle through different aspect ratios
+    for j, a_ratio in tqdm(enumerate(yvalslist),total=a_num):
+
+        # cycle through different allowable numbers of droplets
+        params_arrays = []
+        energies_arrays = []
+        
+        if __name__ =='__main__':
+            to_pass = [(n,xvalslist,a_ratio,x_0s[n]) for n in ns]
+            with Pool() as p:
+                n_tuples=p.starmap(gen_data,to_pass)
+            params_arrays = [n_tuple[0] for n_tuple in n_tuples]
+            energies_arrays = [n_tuple[1] for n_tuple in n_tuples]
+
+        min_energies,min_params,min_ns=get_minima(params_arrays,energies_arrays,ns)
+
+        for k,n in enumerate(min_ns):
+            parameters = min_params[k]
+            outMat[0,j,k] = get_contrast(n,parameters)
+            outMat[2,j,k] = get_lifetime(n,parameters)
+            outMat[4,j,k] = parameters[0]
+            outMat[5,j,k] = parameters[1]
+            outMat[6,j,k] = parameters[2] if n>1 else 0 # droplet widths
+            outMat[7,j,k] = parameters[3] if n>1 else 0 # droplet separations
+            outMat[8,j,k] = parameters[4] if n>2 else 0 # 1st order decay
+            outMat[9,j,k] = parameters[5] if n>4 else 0 # 2nd order decay
+        outMat[1,j] = min_energies
+        outMat[3,j] = min_ns
+
+    settings = np.array((e_min,e_max,e_num,a_min,a_max,a_num,N,f))
+    return outMat, settings
+
 
 def get_contrast(n,params):
     '''Returns wavefunction contrast in centre for n droplets with parameters array params'''
     if n == 1:
-        return 1
+        return 0
     # set integration range
     L_set = 40*params[2]
     if n%2 == 0: # even droplets
@@ -218,10 +265,30 @@ def get_contrast(n,params):
         psisq_max = func(0,*params[2:])
         min_positions = find_peaks(-psisq)[0]
         min_vals = np.array([psisq[x] for x in min_positions])
-        psisq_min = np.amax(min_vals)
-
+        try:
+            psisq_min = np.amax(min_vals)
+        except ValueError: # for multiple droplets without minima
+            return 0
     return (psisq_max-psisq_min)/(psisq_max+psisq_min)
 
+def get_lifetime(n,params,k=1):
+    '''Returns estimate of 3-body loss decay time based on first moment of density'''
+    # set integration range
+    L_set = 40*params[2]
+    if n%2 == 0: # even droplets
+        L_set += (n-1)*params[3]
+    elif n>1: # odd droplets
+        L_set += n*params[3]
+
+    func = funcs[n-1]
+    step,zs = set_mesh(L_set)[:2]
+    psisq = func(zs,*params[2:])
+    N_corr = np.sum(psisq)*step
+    psisq = psisq/N_corr
+
+    # return log of decay time
+    return np.log10(1/(k*np.sum(psisq**3*step)))
+    
 def get_minima(params_arrays,energies_arrays,ns):
     min_energies = 1000*np.ones_like(energies_arrays[0],dtype=float)
     min_params = np.empty_like(energies_arrays[0],dtype=object)
@@ -262,6 +329,26 @@ def plot_1d(n,fig,axs,params,energies,e_vals,arat):
 
     fig.suptitle(f'Parameter minima as a function of e_dd (D={D},a_ratio={arat},N={N},res={RES})') 
 
+def plot_2d(mat,mode,emin,emax,enum,amin,amax,anum,nticksx=11,nticksy=11):
+    fig, ax = plt.subplots()
+    ax.imshow(mat[mode],vmax=None)
+
+    ticksx = np.linspace(0,enum-1,nticksx)
+    ticksy = np.linspace(0,anum-1,nticksy)
+    tlabelsx = np.linspace(emin,emax,nticksx)
+    tlabelsy = np.linspace(amin,amax,nticksy)
+
+    ax.set_xticks(ticksx)
+    ax.set_yticks(ticksy)
+    ax.set_xticklabels(["{:.2f}".format(label) for label in tlabelsx])
+    ax.set_yticklabels(["{:.2f}".format(label) for label in tlabelsy])
+
+    ax.set_xlabel('e_dd')
+    ax.set_ylabel('omega_z/omega_r')
+    ax.set_aspect(enum/anum)
+
+    plt.show()
+
 def animate(i,ax1,ns,params,xvalslist):
     ax1.clear()
     ax1.grid()
@@ -270,28 +357,35 @@ def animate(i,ax1,ns,params,xvalslist):
     ax1.text(0.05,0.8,
         'a_s = '+"{:.3f}".format(65.5/xvalslist[i]),
     fontsize = 'large',transform=ax1.transAxes)
-    
-D = get_D(227)
-a_ratio = 0.1388
+
+f = 150
+D = get_D(f)
+a_ratio = 0.5
+x_0s = {1:[1,1,1,0.02],
+    2:[1,1,1,5],
+    3:[1,1,1,5,0.9],
+    4:[1,1,1,5,0.9],
+    5:[1,1,1,5,0.8,0.6]}
 
 if __name__ == '__main__':
-    # generate data
-    e_vals=np.linspace(1.21,1.42,100)[::1]
+    mat, configuration = gen_data_2d(1.25,1.5,5,0.02,0.6,5)
+    np.save('outMat.npy',mat)
+    np.save('configuration.npy',configuration)
+    #mat = np.load('outMat.npy')
+    #plot_2d(mat,2,1.25,1.5,200,0.02,0.6,65)
+    '''e_vals=np.linspace(1.21,1.42,20)[::1]
 
-    #params1,energies1 = gen_data(1,e_vals,[1,1,1,0.02])
-    #params2,energies2 = gen_data(2,e_vals,[1,1,1,5])
-    #params3,energies3 = gen_data(3,e_vals,[1,1,1,5,0.9])
+    params1,energies1 = gen_data(1,e_vals,[1,1,1,0.02])
+    params2,energies2 = gen_data(2,e_vals,[1,1,1,5])
+    params3,energies3 = gen_data(3,e_vals,[1,1,1,5,0.9])
     params4,energies4 = gen_data(4,e_vals,[1,1,1,5,0.9])
     params5,energies5 = gen_data(5,e_vals,[1,1,1,5,0.5,0.5])
-    #params6,energies6 = gen_data(6,e_vals,[1,1,1,5,0.5,0.5])
-    e_vals=e_vals[::-1]
-    params41,energies41 = gen_data(4,e_vals,[1,1,1,5,0.9])
-    params51,energies51 = gen_data(5,e_vals,[1,1,1,5,0.5,0.5])   
+
     # find where energy is minimum
     min_energies,min_params,min_ns=get_minima(
-        (params4,params5,params41[::-1],params51[::-1]),
-        (energies4,energies5,energies41[::-1],energies51[::-1]),
-        (4,5,4,5))
+        (params1,params2,params3,params4,params5),
+        (energies1,energies2,energies3,energies4,energies5),
+        (1,2,3,4,5))
 
     contrasts = np.zeros_like(e_vals,dtype=float)
     for index,n in enumerate(min_ns):
@@ -308,4 +402,4 @@ if __name__ == '__main__':
     ani = animation.FuncAnimation(fig1, animate, range(len(e_vals)),
         interval=300,fargs=(ax1,min_ns,min_params,e_vals))
     plt.show()
-    #ani.save('psi_evolution.gif','pillow')
+    #ani.save('psi_evolution.gif','pillow')'''
