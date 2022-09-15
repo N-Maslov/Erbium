@@ -198,7 +198,9 @@ def gen_data(n,e_vals: np.ndarray, aspect:float, x_0: list,save=False,plot=-1):
 
 def gen_data_2d(e_min=1.25,e_max=1.5,e_num=20,a_min=0.02,a_max=0.5,a_num=10):
     '''Generates matrices containing values of each universal parameter and energies
-    for a range of e_dd and aspect ratios specified in arguments.'''
+    for a range of e_dd and aspect ratios specified in arguments.
+    i: parameter
+    j: aspect ratio'''
     global a_ratio
     xvalslist = np.linspace(e_min,e_max,e_num,endpoint=True)
     yvalslist = np.linspace(a_min,a_max,a_num,endpoint=True)
@@ -229,7 +231,7 @@ def gen_data_2d(e_min=1.25,e_max=1.5,e_num=20,a_min=0.02,a_max=0.5,a_num=10):
         for k,n in enumerate(min_ns):
             parameters = min_params[k]
             outMat[0,j,k] = get_contrast(n,parameters)
-            outMat[2,j,k] = get_lifetime(n,parameters)
+            outMat[2,j,k] = get_lifetime(n,parameters,loss_coeff(xvalslist[k],f,N))
             outMat[4,j,k] = parameters[0]
             outMat[5,j,k] = parameters[1]
             outMat[6,j,k] = parameters[2] if n>1 else 0 # droplet widths
@@ -271,8 +273,12 @@ def get_contrast(n,params):
             return 0
     return (psisq_max-psisq_min)/(psisq_max+psisq_min)
 
+def loss_coeff(epsilon,freq,N_atoms):
+    '''Calculates dimensionless three-body-loss coefficient k N**2/L**6'''
+    return (5.75*epsilon - 6.03) * 4.43e-10 * freq**3 * N_atoms**2
+
 def get_lifetime(n,params,k=1):
-    '''Returns estimate of 3-body loss decay time based on first moment of density'''
+    '''Returns estimate of 3-body loss decay time based on second moment of density'''
     # set integration range
     L_set = 40*params[2]
     if n%2 == 0: # even droplets
@@ -287,7 +293,7 @@ def get_lifetime(n,params,k=1):
     psisq = psisq/N_corr
 
     # return log of decay time
-    return np.log10(1/(k*np.sum(psisq**3*step)))
+    return np.log10(1/(k*np.sum(psisq**3)*step)*np.pi**2*params[1]**4*3)
     
 def get_minima(params_arrays,energies_arrays,ns):
     min_energies = 1000*np.ones_like(energies_arrays[0],dtype=float)
@@ -331,7 +337,7 @@ def plot_1d(n,fig,axs,params,energies,e_vals,arat):
 
 def plot_2d(mat,mode,emin,emax,enum,amin,amax,anum,nticksx=11,nticksy=11):
     fig, ax = plt.subplots()
-    ax.imshow(mat[mode],vmax=None)
+    im = ax.imshow(mat[mode],vmax=None)
 
     ticksx = np.linspace(0,enum-1,nticksx)
     ticksy = np.linspace(0,anum-1,nticksy)
@@ -347,6 +353,8 @@ def plot_2d(mat,mode,emin,emax,enum,amin,amax,anum,nticksx=11,nticksy=11):
     ax.set_ylabel('omega_z/omega_r')
     ax.set_aspect(enum/anum)
 
+    cbar = fig.colorbar(im)
+    cbar.set_label('to be replaced with actual thing')
     plt.show()
 
 def animate(i,ax1,ns,params,xvalslist):
@@ -368,11 +376,11 @@ x_0s = {1:[1,1,1,0.02],
     5:[1,1,1,5,0.8,0.6]}
 
 if __name__ == '__main__':
-    mat, configuration = gen_data_2d(1.25,1.5,5,0.02,0.6,5)
-    np.save('outMat.npy',mat)
-    np.save('configuration.npy',configuration)
-    #mat = np.load('outMat.npy')
-    #plot_2d(mat,2,1.25,1.5,200,0.02,0.6,65)
+    #mat, configuration = gen_data_2d(1.25,1.5,5,0.02,0.6,5)
+    #np.save('outMat.npy',mat)
+    #np.save('configuration.npy',configuration)
+    mat = np.load('outMat.npy')
+    plot_2d(mat,2,1.25,1.5,5,0.02,0.6,5)
     '''e_vals=np.linspace(1.21,1.42,20)[::1]
 
     params1,energies1 = gen_data(1,e_vals,[1,1,1,0.02])
