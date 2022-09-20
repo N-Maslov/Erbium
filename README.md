@@ -1,5 +1,5 @@
 # Erbium #
-## Programs for constructing phase diagrams of ultracold atoms by numerically minimising the extended Gross-Pitaevskii equation ##
+## Programs for constructing phase diagrams of ultracold dipolar gases by numerically minimising the extended Gross-Pitaevskii equation ##
 The program is based on the approximation used in [P Blair, Blakie, et al 2020 Commun. Theor. Phys. 72 085501] of a constant Gaussian ansatz
 for the longitudinal ansatz, reducing the 3d energy minimisation problem to a 1d one and allowing fast construction of a phase diagram
 (runtime of a few hours on a decent PC for a roughly 200x200 grid). By default, the program uses a longitudinal ansatz of a fixed number of
@@ -8,6 +8,8 @@ from one to an upper limit (default 5), and the parameters with the lowest energ
 
 The final result is a matrix storing the result of the contrast, energy, decay time, number of droplets, and all wavefunction parameters
 across a grid of varying e_dd and trap aspect ratio, for a fixed radial trap frequecy and number of atoms.
+
+Required PyPi packages: numpy, scipy, matplotlib, tqdm
 
 The repository is split across five programs, each of which has a more detailed description in its first few lines.
 Roughly speaking, functions are split across them as follows:
