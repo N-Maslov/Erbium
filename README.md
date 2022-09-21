@@ -49,7 +49,7 @@ option is instead set to True:
 If we would like to generate a one-dimensional constant-aspect ratio plot of, say, the 14th aspect ratio slice, the call would be as follows:
 `plot_1d(mat,settings,14)`
 Finally, if we would like to generate an animation of the evolution with e_dd across the same slice and save it as a gif, the call would be
-`ani_generator(mat,settings,14,save=True,fps = 20)
+`ani_generator(mat,settings,14,save=True,fps = 20)`
 
 Documentation on every individual function is found within their docstrings.
 If anything isn't working correctly, please email me :) 
