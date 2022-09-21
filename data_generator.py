@@ -42,8 +42,9 @@ def gen_data(D:float,N:float,n:int,e_vals:np.ndarray,a_ratio:float,x_0:list,save
     n_params = func.__code__.co_argcount+1
 
     # select bounds for minimisation. (0,2) for relative decay parameters.
-    bnds = [(None,None) if i <= 3 else (0,2) for i in range(n_params)]
+    bnds = [(None,None) if i <= 3 else (0.2,2) for i in range(n_params)]
     bnds[0], bnds[1] = (0.1,None),(0.01,None) # prevent ZeroDivisionError for transverse part
+
 
     # sweep through values of e_dd (default: from smallest to largest, gives better behaviour)
     for i,e_dd in enumerate(e_vals):
@@ -57,7 +58,6 @@ def gen_data(D:float,N:float,n:int,e_vals:np.ndarray,a_ratio:float,x_0:list,save
             # set integration length and corresponding bounds depending on number of droplets
             if n == 1:
                 mesh_args = setup.set_mesh(40*x_0[2])
-                bnds[3] = (0,2) # for smoothing of wavefunction edges (unique parameter to n=1)
             else:
                 if n%2 == 0:
                     mesh_args = setup.set_mesh((n-1)*x_0[3]+40*x_0[2])
@@ -128,9 +128,11 @@ def gen_data_2d(f=150.0,N=5.e4,e_min=1.25,e_max=1.5,e_num=20,a_min=0.02,a_max=0.
     
     # work out dimensionless interaction strength from frequency supplied
     D = setup.get_D(f)
+
     # generate arrays of e_dd and aspect ratio values to run calculations for
     xvalslist = np.linspace(e_min,e_max,e_num,endpoint=True)
     yvalslist = np.linspace(a_min,a_max,a_num,endpoint=True)
+
     # specify numbers of droplets to try
     ns = [1,2,3,4,5]
 
@@ -186,7 +188,7 @@ def gen_data_2d(f=150.0,N=5.e4,e_min=1.25,e_max=1.5,e_num=20,a_min=0.02,a_max=0.
             outMat[2,j,k] = param_calcs.get_lifetime(psisq,step,l,e_dd,f,N)
             outMat[4,j,k] = parameters[0] # transverse obliquity
             outMat[5,j,k] = parameters[1] # transverse length
-            outMat[6,j,k] = parameters[2] if n>1 else 0 # droplet widths
+            outMat[6,j,k] = parameters[2] # droplet widths
             outMat[7,j,k] = parameters[3] if n>1 else 0 # droplet separations
             outMat[8,j,k] = parameters[4] if n>2 else 0 # 1st order decay
             outMat[9,j,k] = parameters[5] if n>4 else 0 # 2nd order decay

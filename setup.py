@@ -50,9 +50,9 @@ def get_D(f:float,mu=7,m=166) -> float:
     return 4.257817572e-9 * np.sqrt(m**3*f)*mu**2
 
 # set wavefunctions for different numbers of droplets
-def psi_0(z,s,a): # 1 droplet, non-gaussian ansatz, matches TF in centre and tapering off rate contrallable
+def psi_0(z,s): # 1 droplet, non-gaussian ansatz, matches TF in centre and tapering off rate contrallable
     x = z/s
-    return 1/(1 + 1/20*x**2 + 21/800*x**4 + (a*x)**6)**10
+    return 1/(1 + 1/20*x**2 + 21/800*x**4 + 0.056*x**6)**10
 psi_1 = lambda z,s: np.exp(-z**2/(2*s**2))
 psi_2 = lambda z,s,w: np.exp(-(z-w/2)**2/(2*s**2)) + np.exp(-(z+w/2)**2/(2*s**2))
 psi_3 = lambda z,s,w,h_1: h_1*(np.exp(-(z-w)**2/(2*s**2)) + np.exp(-(z+w)**2/(2*s**2))) + psi_1(z,s)
@@ -66,7 +66,7 @@ funcs = (psi_0,psi_2,psi_3,psi_4,psi_5)
 
 # initial guesses for minimisation, starting at lowest value of e_dd.
 # each key corresponds to its number of droplets.
-init_guesses = {1:[1,1,1,0.02],
+init_guesses = {1:[1,1,1],
     2:[1,1,1,5],
     3:[1,1,1,5,0.9],
     4:[1,1,1,5,0.9],

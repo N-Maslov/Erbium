@@ -195,4 +195,4 @@ if __name__ == '__main__':
     mat = np.load('output\\outMat.npy')
     energies = np.load('output\\outEnergies.npy')
     settings = np.load('output\\settings.npy')
-    plot_2d(mat,settings,0,False)
+    plot_2d(mat,settings,0)
