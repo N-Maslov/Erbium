@@ -1,13 +1,14 @@
 # Erbium #
-## Programs for constructing phase diagrams of ultracold dipolar gases by numerically minimising the extended Gross-Pitaevskii equation ##
+## Programs for constructing phase diagrams of ultracold dipolar gases by numerically minimising the extended Gross-Pitaevskii Hamiltonian ##
 The program is based on the approximation used in [P Blair, Blakie, et al 2020 Commun. Theor. Phys. 72 085501] of a constant Gaussian ansatz
 for the longitudinal ansatz, reducing the 3d energy minimisation problem to a 1d one and allowing fast construction of a phase diagram
 (runtime of a few hours on a decent PC for a roughly 200x200 grid). By default, the program uses a longitudinal ansatz of a fixed number of
-Gaussian-droplets. For a given number of atoms, trap frequency, e_dd and aspect ratio, minimisation is done for every number of droplets
+Gaussian-droplets. For a given number of atoms, trap frequency, scattering length and aspect ratio, minimisation is done for every number of droplets
 from one to an upper limit (default 5), and the parameters with the lowest energy are selected.
 
 The final result is a matrix storing the result of the contrast, energy, decay time, number of droplets, and all wavefunction parameters
-across a grid of varying e_dd and trap aspect ratio, for a fixed radial trap frequecy and number of atoms.
+across a grid of varying e_dd and trap aspect ratio, for a fixed radial trap frequecy and number of atoms. It also outputs an energies matrix,
+storing terms for each individual contribution to the Hamiltonian at every point.
 
 Required PyPi packages: numpy, scipy, matplotlib, tqdm
 
@@ -51,3 +52,4 @@ Finally, if we would like to generate an animation of the evolution with e_dd ac
 `ani_generator(mat,settings,14,save=True,fps = 20)
 
 Documentation on every individual function is found within their docstrings.
+If anything isn't working correctly, please email me :) 
